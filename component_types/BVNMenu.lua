@@ -50,7 +50,7 @@ BVNMenu = {
 		local info = assist and BVNMenu.AssistInfo(id) or BVNMenu.FighterInfo(id)
 		if not info then return false end
 		local file = info.urls.file:gsub("%.swf$", "")
-		return BVNRuntime.Character((assist and "fz_" or "") .. file) ~= nil
+		return BVNRuntime.HasCharacter((assist and "fz_" or "") .. file)
 	end,
 
 	Enter = function(g, phase)

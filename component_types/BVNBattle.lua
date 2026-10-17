@@ -59,6 +59,16 @@ end
 
 -- opts: {p1 = {fighter, assist, cpu}, p2 = {...}, map = id, mode, level, training}
 function BVNBattle.New(opts)
+	-- Keep only this match's characters in memory.
+	local keep = {}
+	for side = 1, 2 do
+		local p = opts["p" .. side]
+		local info = BVNMenu.FighterInfo(p.fighter)
+		if info then keep[#keep + 1] = info.urls.file:gsub("%.swf$", "") end
+		local a = p.assist and BVNMenu.AssistInfo(p.assist)
+		if a then keep[#keep + 1] = "fz_" .. a.urls.file:gsub("%.swf$", "") end
+	end
+	BVNRuntime.KeepCharacters(keep)
 	local b = setmetatable({}, Battle)
 	b.opts = opts
 	b.mode = opts.mode
@@ -119,6 +129,7 @@ function Battle:StartRound()
 	self.timeFrame = 0
 	self.actionEnable = false
 	self.phase, self.phaseT = "intro", 0
+	self.banner = nil
 	self.winner = nil
 	self.pause = 0
 	self.bisha = nil
@@ -150,6 +161,7 @@ function Battle:OnDie(f)
 	self.phase, self.phaseT = "ko", 0
 	self.winner = 3 - f.side
 	self.fx:Slow(2, 1200)
+	BVNHud.Banner(self, "ko", "winner", 0)
 	BVNSound.Play("ko", 128)
 end
 function Battle:OnDead() end
@@ -232,6 +244,7 @@ end
 function Battle:Update()
 	self.tick = self.tick + 1
 	self.fx:Update()
+	BVNHud.StepBanner(self)
 	for _, f in ipairs(self.fighters) do f.input:Update(self.actionEnable) end
 	self:UpdateCamera()
 	if self.fx.freeze > 0 then return end
@@ -351,6 +364,7 @@ function Battle:TimeOver()
 	self.timeOver = true
 	local a, b = self.fighters[1], self.fighters[2]
 	self.winner = a.hp > b.hp and 1 or (b.hp > a.hp and 2 or 0)
+	BVNHud.Banner(self, self.winner == 0 and "drawgame" or "timeover", nil, 0)
 end
 
 function Battle:UpdatePhase(animate)
@@ -361,9 +375,11 @@ function Battle:UpdatePhase(animate)
 		if (ready and self.phaseT > 60) or self.phaseT > 360 then
 			for _, f in ipairs(self.fighters) do if f.state == 60 then f:Idle() end end
 			self.phase, self.phaseT = "go", 0
+			BVNHud.Banner(self, self.round < 5 and "start" or "start_final", self.round < 5 and "start_final" or "go:fight", -50)
 		end
 	elseif self.phase == "go" then
-		if self.phaseT > 50 then
+		local ready = self.banner and BVNHud.BannerAt(self, "fight")
+		if (ready or (not self.banner and self.phaseT > 50)) and not self.actionEnable then
 			self.phase, self.phaseT = "fight", 0
 			self.actionEnable = true
 		end
@@ -572,6 +588,7 @@ function Battle:DrawHud()
 end
 
 function Battle:DrawCenterText()
+	if self.banner or BVNHud.Available() then return end
 	if self.phase == "intro" or self.phase == "go" then
 		if self.phase == "go" then D.TextC("FIGHT!", SW / 2, 260, 110, {255, 80, 40}) end
 		D.TextC("ROUND " .. self.round, SW / 2, 180, 50, WHITE, self.phase == "intro" and 255 or 120)

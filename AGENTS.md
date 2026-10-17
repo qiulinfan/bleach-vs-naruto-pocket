@@ -2,7 +2,7 @@
 
 A port of 5DPLAY's *Bleach vs Naruto* (Flash, AS3). Original assets come from
 the submodules under `external/`; everything converted from them is ignored
-(`images/bvn/`, `audio/bvn/`, `component_types/generated/`, `.cache/`).
+(`images/bvn/`, `audio/bvn/`, `data/bvn/`, `component_types/generated/`, `.cache/`).
 
 ## Pipeline
 
@@ -14,7 +14,10 @@ the submodules under `external/`; everything converted from them is ignored
   frame it records the image offset, `bdmn` body, `*atm` hit boxes, named child
   positions (`@name`), animated children with their placement serial and
   matrix, and timeline sounds. Scripts are translated by `tools/as3lua.py`.
-  Output: `component_types/generated/BVNF_<id>.lua` (assists: `BVNF_fz_<id>`).
+  Output: `data/bvn/BVNF_<id>.lua` (assists: `BVNF_fz_<id>`), loaded on demand by
+  `BVNRuntime.Character` through `Application.GetProjectDirectory()`; the
+  whole roster would take ~100 MB of Lua heap if loaded at startup, beyond the
+  agent's 64 MiB budget. A battle keeps only its own characters.
 - `tools/convert_maps.py`: map layers (`bg`, `map`, `front`, `front_fix`, logos
   stripped), bounds lines, floors and spawn points into `BVNMaps`; faces, BGM
   and the 5DPLAY config (`fighter.json`, `assist.json`, `map.json`,

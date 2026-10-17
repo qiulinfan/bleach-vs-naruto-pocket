@@ -83,8 +83,52 @@ function R.UNSUPPORTED(name)
 end
 
 -- Character registry: converted data lives in globals BVNF_<id>.
+-- Converted characters live in data/bvn/BVNF_<id>.lua and are loaded on first
+-- use (all of them would take ~100 MB of Lua heap). Files either return their
+-- table or (older converter output) assign a global of the same name.
+local cache, exists = {}, {}
+local function dataPath(var)
+	return Application.GetProjectDirectory() .. "/data/bvn/" .. var .. ".lua"
+end
+
+function R.HasCharacter(id)
+	local var = "BVNF_" .. id:gsub("%W", "_")
+	if cache[var] then return true end
+	if exists[var] == nil then
+		local f = io.open(dataPath(var), "rb")
+		exists[var] = f ~= nil
+		if f then f:close() end
+	end
+	return exists[var]
+end
+
 function R.Character(id)
-	return _G["BVNF_" .. id:gsub("%W", "_")]
+	local var = "BVNF_" .. id:gsub("%W", "_")
+	local c = cache[var]
+	if c then return c end
+	local f = io.open(dataPath(var), "rb")
+	if not f then return nil end
+	local src = f:read("a")
+	f:close()
+	local chunk, err = load(src, "@" .. var .. ".lua", "t")
+	if not chunk then Debug.Log("BVN: cannot load " .. var .. ": " .. tostring(err)) return nil end
+	c = chunk()
+	if c == nil then
+		c = rawget(_G, var)
+		rawset(_G, var, nil)
+	end
+	cache[var] = c
+	return c
+end
+
+-- Drops loaded characters not listed in `keep` (ids with the BVNF_ prefix rules applied).
+function R.KeepCharacters(keep)
+	local want = {}
+	for _, id in ipairs(keep) do want["BVNF_" .. id:gsub("%W", "_")] = true end
+	for var in pairs(cache) do
+		if not want[var] then cache[var] = nil end
+	end
+	collectgarbage()
 end
 
 -- A class referenced by name in a script (faces, sounds, Event, ...).

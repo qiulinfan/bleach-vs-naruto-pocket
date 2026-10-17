@@ -210,6 +210,8 @@ class Library:
                 out.append(el)
         return out
 
+    frame_override = {}
+
     def draw_list(self, sym, t, m, alpha, depth=0):
         """Bitmaps (image, matrix, alpha) visible on frame t (0-based) of symbol sym, bottom first."""
         out = []
@@ -255,7 +257,9 @@ class Library:
                         first = int(el.get("firstFrame", 0))
                         loop = el.get("loop", "loop")
                         rel = t - idx
-                        if el.get("symbolType") == "graphic":
+                        if el.get("name") in self.frame_override:
+                            ct = min(n - 1, self.frame_override[el.get("name")])
+                        elif el.get("symbolType") == "graphic":
                             if loop == "single frame":
                                 ct = first
                             elif loop == "play once":

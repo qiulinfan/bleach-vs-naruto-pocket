@@ -89,14 +89,54 @@ local function image(img, ox, oy, w)
 	end
 end
 
+local function findNode(parts, name)
+	for _, p in ipairs(parts) do
+		if p.name == name then return p end
+	end
+	return nil
+end
+
 BVNHud = {
+	-- Start / KO banner (game_start_mc): play `label` up to the next label, on animate ticks.
+	Banner = function(b, label, stopLabel, y)
+		local anim = BVNUIData and BVNUIData.anims and BVNUIData.anims.game_start_mc
+		if not anim then return end
+		local from = anim.labels[label]
+		if not from then return end
+		local to = stopLabel and anim.labels[stopLabel] and (anim.labels[stopLabel] - 1) or #anim.frames
+		local frames = anim.rounds and anim.rounds[math.min(5, b.round)] or anim.frames
+		b.banner = {anim = anim, frames = frames, f = from, to = to, y = y or 0, tick = 0}
+	end,
+
+	StepBanner = function(b)
+		local bn = b.banner
+		if not bn then return end
+		bn.tick = bn.tick + 1
+		if bn.tick % 2 == 0 and bn.f < bn.to then bn.f = bn.f + 1 end
+	end,
+
+	BannerAt = function(b, label)
+		local bn = b.banner
+		return bn and bn.anim.labels[label] and bn.f >= bn.anim.labels[label]
+	end,
+
+	DrawBanner = function(b)
+		local bn = b.banner
+		if not bn then return end
+		local fr = bn.frames[bn.f]
+		if not fr or not fr.img then return end
+		local node = findNode(BVNUIData["$fight$MC_fightUI"].parts, "startKOmc")
+		local nx = node and node.m[5] or 400
+		Image.DrawUIScaled(fr.img, OX + (nx + fr.x) * SCALE, (bn.y + fr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255, 30)
+	end,
+
 	Available = function()
 		return BVNUIData ~= nil and BVNUIData["$fight$MC_fightUI"] ~= nil
 	end,
 
 	Draw = function(b)
 		local root = BVNUIData["$fight$MC_fightUI"].parts
-		local ov = {["hpbarmc/scoremc"] = {hide = true}}
+		local ov = {["hpbarmc/scoremc"] = {hide = true}, ["startKOmc"] = {hide = true}}
 		for side = 1, 2 do
 			local f = b.fighters[side]
 			local bar, en, face, win, qi = "hpbarmc/bar" .. side, "hpbarmc/energy" .. side, "hpbarmc/face" .. side,
@@ -135,6 +175,7 @@ BVNHud = {
 			end}
 		end
 		draw(root, SCALE, SCALE, OX, 0, ov, "", 255, 10)
+		BVNHud.DrawBanner(b)
 		-- Names under the bars (the original shows them on the select screen only).
 		for side = 1, 2 do
 			local f = b.fighters[side]
