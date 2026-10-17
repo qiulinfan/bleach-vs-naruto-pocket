@@ -35,8 +35,9 @@ ASSETS = ROOT / "external" / "TagAssets" / "shared" / "assets" / "assets"
 CACHE = ROOT / ".cache" / "convert"
 DATA = ROOT / "data" / "bvn"
 FFDEC = Path.home() / ".local/share/ffdec/ffdec-run"
-HIT_RANGES = ["zh_range", "sh_range", "kj_range", "kj2_range", "zh2_range", "sk_range", "sk2_range", "bs_range", "sbs_range",
-              "cbs_range", "zh3_range", "kjup_range", "kjdown_range"]
+# FighterHitRange.ALL_HIT_RANGES: the CPU's attack ranges, children of AImain frame 2.
+HIT_RANGES = ["kanmian", "tkanmian", "kj1mian", "kj2mian", "zh1mian", "zh2mian", "zh3mian", "tzmian", "bsmian", "sbsmian",
+              "cbsmian", "kbsmian"]
 SPECIAL_NAMES = ("AImain", "bdmn")
 
 
@@ -161,6 +162,7 @@ class Converter:
                         pts = self.child_points(dl)
                         if pts:
                             f.setdefault("hits", {}).update(pts)
+                    d["ranges"] = self.ranges_of(sid)
             for sid, d in meta["sprites"].items():
                 cls = swf.id_class.get(sid)
                 d["script"] = self.translate(cls) if cls else None
@@ -323,6 +325,13 @@ class Converter:
         cls = swf.id_class.get(sid)
         return {"frames": frames, "labels": labels, "ranges": hit_ranges or {}, "script": self.translate(cls) if cls else None,
                 "bounds": [round(x, 1) for x in rect] if rect else None}
+
+    def ranges_of(self, sid):
+        for dl, _, _ in self.swf.timeline(sid):
+            for obj in dl.values():
+                if obj.get("name") == "AImain":
+                    return self.hit_ranges(obj, 0, 0)
+        return {}
 
     def hit_ranges(self, obj, tx, ty):
         swf = self.swf

@@ -1,14 +1,17 @@
--- Fighter input predicates (FighterKeyCtrl): directions are held, the five
--- buttons stay pressed for 6 logic ticks after a press. Humans read actions
--- p<n>_*; the CPU sets the same fields from BVNAI. Not attached to any actor.
+-- Fighter input predicates (FighterKeyCtrl): directions are held. In the classic
+-- key mode (the original's default, keyInputMode 1) a held button repeats; in the
+-- standard mode a button stays pressed for 6 logic ticks after a press and quick
+-- double jumps are allowed. Humans read actions p<n>_*; the CPU sets the same
+-- fields from BVNAI. Not attached to any actor.
 local BUTTONS = {"attack", "jump", "dash", "skill", "super"}
 
 local Input = {}
 Input.__index = Input
 
 BVNInput = {
+	classic = true,
 	New = function(side, cpu)
-		local k = setmetatable({side = side, cpu = cpu, buf = {}, held = {}}, Input)
+		local k = setmetatable({side = side, cpu = cpu, buf = {}, held = {}, classic = BVNInput.classic}, Input)
 		for _, b in ipairs(BUTTONS) do k.buf[b] = 0 end
 		k.up, k.down, k.left, k.right, k.special_held = false, false, false, false, false
 		return k
@@ -46,7 +49,10 @@ function Input:Release()
 	self.cpuWaiKai = false
 end
 
-local function pressed(k, b) return k.buf[b] > 0 end
+local function pressed(k, b)
+	if k.classic then return k.held[b] end
+	return k.buf[b] > 0
+end
 
 function Input:moveLEFT() return self.left and not self.right end
 function Input:moveRIGHT() return self.right and not self.left end
@@ -61,7 +67,7 @@ function Input:bisha() return pressed(self, "super") and not (self.up or self.do
 function Input:bishaUP() return self.up and pressed(self, "super") end
 function Input:bishaSUPER() return self.down and pressed(self, "super") end
 function Input:jump() return pressed(self, "jump") and not self.held.attack end
-function Input:jumpQuick() return pressed(self, "jump") and not self.held.attack end
+function Input:jumpQuick() return not self.classic and pressed(self, "jump") and not self.held.attack end
 function Input:jumpDown() return self.down and pressed(self, "jump") end
 function Input:dash() return pressed(self, "dash") and not self.down end
 function Input:dashJump() return pressed(self, "dash") end

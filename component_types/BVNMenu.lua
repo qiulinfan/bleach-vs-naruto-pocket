@@ -92,7 +92,7 @@ BVNMenu = {
 			-- Left / right: CPU difficulty (GameData config AI_level, 1..6).
 			local dx = g:Tap(1)
 			if dx ~= 0 then
-				g.level = math.max(1, math.min(6, (g.level or 3) + dx))
+				g.level = math.max(1, math.min(6, (g.level or 1) + dx))
 				BVNSound.Play("ui_select")
 			end
 			if m.t > 8 and (Input.GetActionDown("confirm") or Input.GetActionDown("p1_attack")) then
@@ -269,7 +269,7 @@ BVNMenu = {
 			end
 			text(MODES[m.mode].desc, 400, 556, 16, {230, 230, 230})
 			local levels = {"非常简单", "简单", "普通", "困难", "非常困难", "地狱"}
-			text("电脑难度：◀ " .. levels[g.level or 3] .. " ▶", 400, 218, 16, {255, 220, 120})
+			text("电脑难度：◀ " .. levels[g.level or 1] .. " ▶", 400, 218, 16, {255, 220, 120})
 		end
 		text("素材 © 5DPLAY Game Studio《死神vs火影》 · Pocket2D 移植", 400, 580, 12, {180, 180, 190})
 	end,

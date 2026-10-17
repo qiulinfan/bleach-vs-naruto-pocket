@@ -85,7 +85,16 @@ function BVNBattle.New(opts)
 	b.fighters = {}
 	b.teamMode = #opts.p1.team > 1 or #opts.p2.team > 1
 	b.teamIndex = {1, 1}
-	for side = 1, 2 do b.fighters[side] = b:CreateFighter(side, opts["p" .. side].team[1]) end
+	-- GameLogic.resetFighterHP: the arcade stage's hp_rate scales both fighters every round.
+	b.hpRate = opts.hpRate or 1
+	b.timeMax = b.training and -1 or 60
+	for side = 1, 2 do
+		local f = b:CreateFighter(side, opts["p" .. side].team[1])
+		-- GameStage.initFight: the stage's attack_rate applies once, to the first P2 fighter.
+		if opts["p" .. side].attackRate then f:SetAttackRate(opts["p" .. side].attackRate) end
+		f.needIntro = true
+		b.fighters[side] = f
+	end
 	b:StartRound()
 	return b
 end
@@ -99,10 +108,8 @@ function Battle:CreateFighter(side, id)
 	local f = BVNFighter.New(self, char, info.start_frame or 1, side, input)
 	f.info = info
 	f.kind = "fighter"
-	-- Arcade stage multipliers (mission.json properties).
-	if p.hpRate then f.hpMax = f.hpMax * p.hpRate; f.hp = f.hpMax end
-	if p.attackRate then f.attackRate = p.attackRate end
-	if p.cpu and not p.noAI then f.ai = BVNAI.New(f, p.level or self.opts.level or 3) end
+	f.baseHpMax = f.hpMax
+	if p.cpu and not p.noAI then f.ai = BVNAI.New(f, p.level or self.opts.level or 1) end
 	if p.assist then
 		local ainfo = BVNMenu.AssistInfo(p.assist)
 		local achar = ainfo and BVNRuntime.Character("fz_" .. ainfo.urls.file:gsub("%.swf$", ""))
@@ -122,9 +129,10 @@ function Battle:NextMember(side)
 	local i = self.teamIndex[side] + 1
 	if i > #team then return false end
 	local old = self.fighters[side]
+	-- A fresh FighterMain: qi 0, energy and fzqi full; the same series inherits the loser's qi + 100.
 	local f = self:CreateFighter(side, team[i])
 	if (old.char.comic_type or 0) == (f.char.comic_type or 0) then f.qi = math.min(f.qiMax, old.qi + 100) end
-	if old.assist then f.fzqi = old.fzqi end
+	f.needIntro = true
 	self.teamIndex[side] = i
 	self.fighters[side] = f
 	return true
@@ -139,32 +147,45 @@ end
 
 function Battle:StartRound()
 	self.sprites = {}
+	self.introQueue = {}
 	for side, f in ipairs(self.fighters) do
 		local p = side == 1 and self.map.p1 or self.map.p2
 		f.x, f.y = p[1], p[2]
 		f.dir = side == 1 and 1 or -1
+		-- resetFighterHP every round; a team winner keeps its HP. qi, energy and fzqi carry over.
+		f.hpMax = (f.baseHpMax or 1000) * self.hpRate
 		if not (self.teamMode and f.keepHp) then f.hp = f.hpMax end
 		f.keepHp = nil
 		f.alive = true
-		f.energy, f.overload = f.energyMax, false
 		f:SetVelocity(0, 0)
 		f.allowLoseHP = true
 		f.combo = 0
+		f.posed = false
+		f.inAir, f.touchBottom, f.wasInAir = false, true, false
+		f.fmc.hurtFly, f.ghost, f.shadow = 0, nil, nil
+		f.explodeHit, f.explodeHitFrame, f.explodeSteelFrame = nil, 0, 0
+		f.frameOut, f.delayCalls = {}, {}
 		self.sprites[#self.sprites + 1] = f
+		f:Idle()
+		-- Intros play at match start and for an incoming team member, one fighter at a time.
+		if f.needIntro and f:HasLabel("开场") then self.introQueue[#self.introQueue + 1] = f end
+		f.needIntro = nil
 	end
-	self.time = self.training and -1 or 60
+	self.time = self.timeMax
 	self.timeFrame = 0
 	self.actionEnable = false
 	self.phase, self.phaseT = "intro", 0
+	self.intro = {i = 1, t = 0}
 	self.banner = nil
 	self.winner = nil
+	self.loser = nil
+	self.ko = nil
+	self.timeOver = false
 	self.pause = 0
 	self.bisha = nil
-	for _, f in ipairs(self.fighters) do
-		f.state = 60
-		f.alive = true
-		if f:HasLabel("开场") then f:DoAction("开场") ; f.state = 60 else f:Idle() end
-	end
+	self.ghostOwner = nil
+	self.fx.noFreeze = false
+	self.fx:EndSlow()
 	BVNSound.Music(self:MusicFor())
 end
 
@@ -182,16 +203,28 @@ function Battle:OnIdle(f)
 	if f.state == 60 then f.state = 0 end
 end
 function Battle:OnHurtResume(f) local o = self.fighters[3 - f.side] if o then o.combo = 0 end end
+
+-- GameEndCtrl / FightUI.playKO: HP stops changing at once; the game pauses, the KO
+-- clip plays 500 ms later, then a rate-2 slow runs until the loser lies dead.
 function Battle:OnDie(f)
 	if self.phase ~= "fight" then return end
-	self.actionEnable = false
-	self.phase, self.phaseT = "ko", 0
+	self:EndFight()
 	self.winner = 3 - f.side
-	self.fx:Slow(2, 1200)
-	BVNHud.Banner(self, "ko", "winner", 0)
-	BVNSound.Play("ko", 128)
+	self.loser = f
+	self.ko = {stage = "pause", t = 0}
+	self.fx.noFreeze = true
+	self.fx.freeze = 0
+	self.fx:Named("hit_end", f.x, f.y, f.dir)
+	self.fx:Shine(0xffffff, 0.5)
+	self.fx:Shake(5, 1.5)
 end
 function Battle:OnDead() end
+
+function Battle:EndFight()
+	self.actionEnable = false
+	self.phase, self.phaseT = "ko", 0
+	for _, o in ipairs(self.fighters) do o.allowLoseHP = false end
+end
 
 function Battle:Pause(t) self.pause = math.max(self.pause, t) end
 
@@ -262,10 +295,62 @@ end
 function Battle:FixPosition(sp)
 	local m = self.map
 	local x0, x1 = m.left + 10, m.right - 10
+	-- GameLogic.fixGameSpritePosition: a moving fighter stays inside the widest camera view.
+	local c = self.cam
+	if sp.vx ~= 0 and c.w >= self:MaxViewWidth() - 1 then
+		x0, x1 = math.max(x0, c.x - c.w / 2 + 10), math.min(x1, c.x + c.w / 2 - 10)
+	end
 	sp.touchSide = false
-	if sp.x < x0 then sp.x = x0; sp.touchSide = true end
-	if sp.x > x1 then sp.x = x1; sp.touchSide = true end
+	if sp.x <= x0 then sp.x = x0; sp.touchSide = true end
+	if sp.x >= x1 then sp.x = x1; sp.touchSide = true end
 	if sp.y > m.bottom then sp.y = m.bottom end
+end
+
+function Battle:BannerDone()
+	local bn = self.banner
+	return not bn or bn.f >= bn.to
+end
+
+-- The KO / time-over sequence (FightUI.renderEnd, GameEndCtrl). Returns true while the game is paused.
+function Battle:KoStep()
+	local k = self.ko
+	if not k then return false end
+	k.t = k.t + 1
+	if k.stage == "pause" then
+		if k.t == 30 then
+			BVNHud.Banner(self, "ko", "winner", 0)
+			BVNSound.Play("ko", 128)
+		end
+		if k.t > 30 and (self:BannerDone() or k.t > 300) then
+			k.stage, k.t = "slow", 0
+			self.fx.noFreeze = false
+			self.fx:SlowOpen(2)
+		end
+		return true
+	elseif k.stage == "slow" then
+		if self.loser.state == 30 or k.t > 1200 then
+			self.fx:EndSlow()
+			k.stage, k.wait, k.t = "wait", k.t < 120 and 120 or 60, 0
+		end
+	elseif k.stage == "clip" then
+		if self:BannerDone() or k.t > 300 then k.stage, k.wait, k.t = "wait", 60, 0 end
+	elseif k.stage == "wait" then
+		if k.t >= k.wait then k.stage, k.t = "win", 0 end
+	elseif k.stage == "win" then
+		local w = self.winner and self.winner > 0 and self.fighters[self.winner]
+		if w and not w.posed then
+			k.t = 0
+			k.poseWait = (k.poseWait or 0) + 1
+			local s = w.state
+			if (s ~= 12 and s ~= 13 and s ~= 50 and not w.inAir) or k.poseWait > 600 then
+				w.posed = true
+				if w:HasLabel("胜利") then w:DoAction("胜利"); w.state = 61 end
+			end
+		elseif k.t >= 180 then
+			self:EndRound()
+		end
+	end
+	return false
 end
 
 function Battle:Update()
@@ -274,13 +359,18 @@ function Battle:Update()
 	BVNHud.StepBanner(self)
 	for _, f in ipairs(self.fighters) do f.input:Update(self.actionEnable) end
 	self:UpdateCamera()
+	if self:KoStep() then return end
 	if self.fx.freeze > 0 then return end
 	if self.pause > 0 then self.pause = self.pause - 1 return end
-	-- Animate ticks: every 2nd logic tick (every 3rd during 1.5x slow motion).
+	-- Animate ticks: every 2nd logic tick (every 3rd at slow rate 1.5, 4th at 2).
 	local gap = math.ceil(60 / (30 / self.fx.slowRate))
 	self.animCounter = self.animCounter + 1
 	local animate = self.animCounter >= gap
 	if animate then self.animCounter = 0 end
+	-- GameCtrl.slow: speedPlus 0.5/rate and dampingRate 1/rate on every sprite.
+	local k = 1 / self.fx.slowRate
+	self.speedK = k
+	for _, sp in ipairs(self.sprites) do sp.speedPlus, sp.dampingRate = 0.5 * k, k end
 	local bisha = self.bisha
 	if bisha then
 		bisha.t = bisha.t + 1
@@ -288,7 +378,10 @@ function Battle:Update()
 		if bisha.t > 600 and self.bisha == bisha then self.bisha = nil end
 		return
 	end
-	if animate and self.phase == "fight" then
+	-- Ghost step pauses everything but its fighter, the round timer included.
+	local only = self.ghostOwner
+	if only and not only.ghost then self.ghostOwner, only = nil, nil end
+	if animate and self.phase == "fight" and not only then
 		for _, f in ipairs(self.fighters) do if f.ai then f.ai:Think() end end
 		if self.time > 0 then
 			self.timeFrame = self.timeFrame + 1
@@ -299,16 +392,15 @@ function Battle:Update()
 			end
 		end
 	end
-	-- Ghost step pauses everything but its fighter.
-	local only = self.ghostOwner
-	if only and not only.ghost then self.ghostOwner, only = nil, nil end
 	for _, sp in ipairs(self.sprites) do
 		if not sp.dead and (not only or sp == only) then
 			if sp.kind == "fighter" then
 				self:FixPosition(sp)
-				local air = self:IsInAir(sp)
-				if air then sp:ApplyG(12) end
-				sp:SetInAir(air)
+				if sp ~= only then
+					local air = self:IsInAir(sp)
+					if air then sp:ApplyG(12) end
+					sp:SetInAir(air)
+				end
 				if sp.ignoreFloor then sp.ignoreFloor = sp.ignoreFloor - 1 end
 			end
 			sp:Render()
@@ -324,28 +416,39 @@ function Battle:Update()
 	self:UpdatePhase(animate)
 end
 
+-- GameMainLogicCtrl.fillVec: a fighter against the wall does not move; the other takes
+-- the whole push. With both or neither at a wall the push splits by weight (both = full).
+local function split(a, b, rate)
+	if a.touchSide and b.touchSide then return 1, 1 end
+	if a.touchSide then return 0, 1 end
+	if b.touchSide then return 1, 0 end
+	return rate, 1 - rate
+end
+
 function Battle:Push()
 	local a, b = self.fighters[1], self.fighters[2]
 	if a.isCross or b.isCross then return end
-	local ra, rb = a:BodyArea(), b:BodyArea()
+	local ra, rb = a:RawBody(), b:RawBody()
 	if not ra or not rb then return end
 	local o = overlap(ra, rb)
 	if not o then return end
 	if b.x < a.x then a, b = b, a end
 	if (a.vx < 0 and a.vx < b.vx) or (b.vx > 0 and b.vx > a.vx) then return end
-	local rate = clamp(b.heavy / a.heavy * 0.5, 0.1, 0.9)
+	local ka, kb = split(a, b, clamp(b.heavy / a.heavy * 0.5, 0.1, 0.9))
 	if o[3] > 2 then
-		local pa, pb = 2.5 * rate, 2.5 * (1 - rate)
-		if a.touchSide and not b.touchSide then pa, pb = 0, 2.5 elseif b.touchSide and not a.touchSide then pa, pb = 2.5, 0 end
-		a:Move(-pa, 0)
-		b:Move(pb, 0)
+		local push = 5 * a.speedPlus
+		a:Move(-push * ka, 0)
+		b:Move(push * kb, 0)
 	end
-	if a.vx ~= 0 then b:Move(a.vx * (1 - rate), 0); a:Move(-a.vx * rate, 0) end
-	if b.vx ~= 0 then a:Move(b.vx * rate, 0); b:Move(-b.vx * (1 - rate), 0) end
+	if a.vx ~= 0 then b:Move(a.vx * kb, 0); a:Move(-a.vx * ka, 0) end
+	if b.vx ~= 0 then a:Move(b.vx * ka, 0); b:Move(-b.vx * kb, 0) end
 end
 
+-- GameMainLogicCtrl.checkHit: every pair is tested against the frames as they are,
+-- then all hits apply, so both fighters of a trade are hit.
 function Battle:CheckHits()
 	local list = self.sprites
+	local found = {}
 	for i = 1, #list do
 		for j = 1, #list do
 			local A, B = list[i], list[j]
@@ -356,24 +459,7 @@ function Battle:CheckHits()
 						for _, hr in ipairs(A:CurrentHits()) do
 							local o = overlap(hr[2], body)
 							if o then
-								local h = hr[1]
-								if B.kind == "fighter" then
-									if B.state == 21 or B.state == 22 then
-										local f = A.kind == "fighter" and A or A.owner
-										if f and f.combo then f.combo = f.combo + 1 end
-									else
-										local f = A.kind == "fighter" and A or A.owner
-										if f and f.combo then f.combo = 1 end
-									end
-									B:BeHit(h, o)
-								else
-									B:BeHit(h, o, A)
-								end
-								if A.kind == "fighter" then
-									if not BVNFighter.IsBisha(h) then A:AddQi(math.min(h.power * 0.17, 15)) end
-								elseif A.OnHit then
-									A:OnHit(B.kind == "fighter" and B or nil)
-								end
+								found[#found + 1] = {A, B, hr[1], o}
 								break
 							end
 						end
@@ -382,25 +468,111 @@ function Battle:CheckHits()
 			end
 		end
 	end
+	for _, hit in ipairs(found) do
+		local A, B, h, o = hit[1], hit[2], hit[3], hit[4]
+		if B.kind == "fighter" then
+			local f = A.kind == "fighter" and A or A.owner
+			if f and f.kind ~= "fighter" then f = f.owner end
+			if f and f.combo then
+				if B.state == 21 or B.state == 22 then f.combo = f.combo + 1 else f.combo = 1 end
+			end
+			B:BeHit(h, o)
+		else
+			B:BeHit(h, o, A)
+		end
+		if A.kind == "fighter" then
+			if not BVNFighter.IsBisha(h) then A:AddQi(math.min(h.power * 0.17, 15)) end
+		elseif A.OnHit then
+			A:OnHit(B, h)
+		end
+	end
 end
 
 function Battle:TimeOver()
 	if self.phase ~= "fight" then return end
-	self.actionEnable = false
-	self.phase, self.phaseT = "ko", 0
+	self:EndFight()
 	self.timeOver = true
 	local a, b = self.fighters[1], self.fighters[2]
 	self.winner = a.hp > b.hp and 1 or (b.hp > a.hp and 2 or 0)
+	self.ko = {stage = "clip", t = 0}
 	BVNHud.Banner(self, self.winner == 0 and "drawgame" or "timeover", nil, 0)
+end
+
+-- GameRoundCtrl: the next round, the next team member, or the end of the match.
+function Battle:EndRound()
+	local w = self.winner or 0
+	local over = false
+	if self.teamMode then
+		if w == 0 then
+			local a, b2 = self:NextMember(1), self:NextMember(2)
+			-- Nobody left on either side: the same two fight again at full HP.
+			if a and not b2 then over, self.matchWinner = true, 1
+			elseif b2 and not a then over, self.matchWinner = true, 2 end
+		else
+			-- GameEndCtrl: the winner regains up to 20% HP, scaled by the time left.
+			local s = self.fighters[w]
+			local cap = BVNRuntime.INT(s.hpMax * 0.2)
+			local add = self.timeMax > 0 and BVNRuntime.INT(cap * math.max(0, self.time) / self.timeMax) or cap
+			add = math.max(add, s.hpMax * 0.05)
+			s.hp = BVNRuntime.INT(math.min(s.hpMax, s.hp + add))
+			s.keepHp = true
+			if not self:NextMember(3 - w) then over, self.matchWinner = true, w end
+		end
+	else
+		if w > 0 then self.wins[w] = self.wins[w] + 1 end
+		if self.wins[1] >= 2 or self.wins[2] >= 2 then
+			over, self.matchWinner = true, self.wins[1] >= 2 and 1 or 2
+		end
+	end
+	if over then
+		self.phase, self.phaseT = "over", 0
+	else
+		self.round = self.round + 1
+		self:StartRound()
+	end
+end
+
+-- TrainingCtrl: HP refills 60 T after a fighter recovers from a hit (120 T after other
+-- loss); qi and fzqi refill 120 T after they drop.
+function Battle:UpdateTraining()
+	for _, f in ipairs(self.fighters) do
+		local tr = f.training or {hp = f.hp, qi = f.qi, fz = f.fzqi, hpT = 0, qiT = 0, fzT = 0}
+		f.training = tr
+		local hurt = f.state == 21 or f.state == 22
+		if hurt then tr.hpT = 60
+		elseif f.hp < tr.hp then tr.hpT = 120 end
+		if f.qi < tr.qi then tr.qiT = 120 end
+		if f.fzqi < tr.fz then tr.fzT = 120 end
+		if not hurt and tr.hpT > 0 then
+			tr.hpT = tr.hpT - 1
+			if tr.hpT == 0 then f.hp = f.hpMax end
+		end
+		if tr.qiT > 0 then tr.qiT = tr.qiT - 1 if tr.qiT == 0 then f.qi = f.qiMax end end
+		if tr.fzT > 0 then tr.fzT = tr.fzT - 1 if tr.fzT == 0 then f.fzqi = f.fzqiMax end end
+		tr.hp, tr.qi, tr.fz = f.hp, f.qi, f.fzqi
+	end
 end
 
 function Battle:UpdatePhase(animate)
 	self.phaseT = self.phaseT + 1
 	if self.phase == "intro" then
-		local ready = true
-		for _, f in ipairs(self.fighters) do if f.state == 60 then ready = false end end
-		if (ready and self.phaseT > 60) or self.phaseT > 360 then
-			for _, f in ipairs(self.fighters) do if f.state == 60 then f:Idle() end end
+		-- GameStartCtrl: 30 T, the intro until it ends, 18 T, then the next fighter; 6 T, then the banner.
+		local q, st = self.introQueue, self.intro
+		st.t = st.t + 1
+		local f = q[st.i]
+		if f then
+			if not st.playing then
+				if st.t >= 30 then
+					f:DoAction("开场")
+					f.state = 60
+					st.playing, st.t = true, 0
+				end
+			elseif f.state ~= 60 or st.t > 600 then
+				if f.state == 60 then f:Idle() end
+				st.ended = (st.ended or 0) + 1
+				if st.ended >= 18 then st.i, st.t, st.playing, st.ended = st.i + 1, 0, false, nil end
+			end
+		elseif st.t >= 6 then
 			self.phase, self.phaseT = "go", 0
 			BVNHud.Banner(self, self.round < 5 and "start" or "start_final", self.round < 5 and "start_final" or "go:fight", -50)
 		end
@@ -410,61 +582,22 @@ function Battle:UpdatePhase(animate)
 			self.phase, self.phaseT = "fight", 0
 			self.actionEnable = true
 		end
-	elseif self.phase == "ko" then
-		local w = self.winner and self.winner > 0 and self.fighters[self.winner]
-		if w and self.phaseT > 60 and not w.posed and w.state ~= 12 and w.state ~= 13 and w.state ~= 50 and not w.inAir then
-			w.posed = true
-			for _, f in ipairs(self.fighters) do f.allowLoseHP = false end
-			if w:HasLabel("胜利") then w:DoAction("胜利"); w.state = 61 end
-		end
-		if self.phaseT > 300 and self.teamMode then
-			for _, f in ipairs(self.fighters) do f.posed = false end
-			self.timeOver = false
-			local w = self.winner or 0
-			local over = false
-			if w == 0 then
-				local a, b2 = self:NextMember(1), self:NextMember(2)
-				if not a or not b2 then over = true; self.matchWinner = a and 1 or (b2 and 2 or 1) end
-			else
-				local survivor = self.fighters[w]
-				survivor.keepHp = true
-				survivor.hp = math.min(survivor.hpMax, survivor.hp + math.max(survivor.hpMax * 0.2 * math.max(0, self.time) / 60, survivor.hpMax * 0.05))
-				if not self:NextMember(3 - w) then over = true; self.matchWinner = w end
-			end
-			if over then
-				self.phase, self.phaseT = "over", 0
-			else
-				self.round = self.round + 1
-				self:StartRound()
-			end
-		elseif self.phaseT > 300 then
-			if self.winner and self.winner > 0 then self.wins[self.winner] = self.wins[self.winner] + 1 end
-			for _, f in ipairs(self.fighters) do f.posed = false end
-			self.timeOver = false
-			if self.wins[1] >= 2 or self.wins[2] >= 2 or self.round >= 5 or self.training then
-				self.phase, self.phaseT = "over", 0
-				self.matchWinner = self.wins[1] >= self.wins[2] and 1 or 2
-			else
-				self.round = self.round + 1
-				self:StartRound()
-			end
-		end
 	end
-	if self.training then
-		for _, f in ipairs(self.fighters) do
-			f.qi = f.qiMax
-			if f.side == 2 and f.state == 0 then f.hp = f.hpMax end
-		end
-	end
+	if self.training then self:UpdateTraining() end
 end
 
 -- Camera -----------------------------------------------------------------------------------
+
+function Battle:MaxViewWidth()
+	local m = self.map
+	return math.min(680, m.right - m.left)
+end
 
 function Battle:UpdateCamera()
 	local a, b = self.fighters[1], self.fighters[2]
 	local m = self.map
 	local dx = math.abs(a.x - b.x)
-	local w = clamp(dx + 260, 440, math.min(680, m.right - m.left))
+	local w = clamp(dx + 260, 440, self:MaxViewWidth())
 	local h = w * SH / SW
 	local cx = (a.x + b.x) / 2
 	local focus = self.bisha and self.bisha.f

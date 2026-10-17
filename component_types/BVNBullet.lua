@@ -4,10 +4,13 @@
 local function sign(v) return v > 0 and 1 or (v < 0 and -1 or 0) end
 local function clamp(v, a, b) return math.max(a, math.min(b, v)) end
 
+-- Bullet.as reads params with AS3 truthiness: 0 keeps the default.
+local function truthy(v) return v ~= nil and v ~= 0 and v ~= false end
+
 local function speedParam(p, default)
-	if p == nil then return {start = default, add = 0, max = 999, min = -999} end
+	if not truthy(p) then return {start = default, add = 0, max = 999, min = -999} end
 	if type(p) == "number" then return {start = p, add = 0, max = 999, min = -999} end
-	return {start = p.start or default, add = p.add or 0, max = p.max or 999, min = p.min or -999, hit = p.hit}
+	return {start = p.start or default, add = (p.add or 0) * 2, max = p.max or 999, min = p.min or -999, hit = p.hit}
 end
 
 local function ctrlMT(methods)
@@ -78,9 +81,10 @@ function BVNBullet.Fire(battle, owner, name, params, hitModel)
 	b.sy = speedParam(params.y, 0)
 	b.vx, b.vy = b.sx.start * b.dir, b.sy.start
 	b.ax, b.ay = b.sx.add * b.dir, b.sy.add
-	b.hold = (params.hold and params.hold ~= -1) and params.hold * 60 or -1
-	b.hits = params.hits or -1
-	b.hpMax = params.hp or 100
+	b.hitVx, b.hitVy = b.sx.hit and b.sx.hit * b.dir, b.sy.hit
+	b.hold = (truthy(params.hold) and params.hold ~= -1) and params.hold * 60 or -1
+	b.hits = truthy(params.hits) and params.hits or -1
+	b.hpMax = truthy(params.hp) and params.hp or 100
 	b.hp = b.hpMax
 	b.isAttacking = true
 	b.allowBeHit = true
@@ -109,27 +113,29 @@ function Bullet:CurrentHits()
 end
 
 function Bullet:Render()
-	if self.dead then return end
-	if not self.stopped then
-		self.x = self.x + self.vx * 0.5
-		self.y = self.y + self.vy * 0.5
-		self.vx = self.vx + self.ax
-		self.vy = self.vy + self.ay
-		local mx, mn = self.sx.max, self.sx.min
-		if self.dir > 0 then self.vx = clamp(self.vx, mn, mx) else self.vx = clamp(self.vx, -mx, -mn) end
-		self.vy = clamp(self.vy, math.min(self.sy.min, self.sy.max), math.max(self.sy.min, self.sy.max))
-	end
-	if self.hold > 0 then
+	-- After its hit the bullet only plays out its clip.
+	if self.dead or self.stopped then return end
+	local sp = 0.5 * (self.battle.speedK or 1)
+	self.x = self.x + self.vx * sp
+	self.y = self.y + self.vy * sp
+	self.vx = self.vx + self.ax * sp
+	self.vy = self.vy + self.ay * sp
+	local mx, mn = self.sx.max, self.sx.min
+	if self.dir > 0 then self.vx = clamp(self.vx, mn, mx) else self.vx = clamp(self.vx, -mx, -mn) end
+	self.vy = clamp(self.vy, self.sy.min, self.sy.max)
+	if self.hold > 0 and not self.timedOut then
 		self.hold = self.hold - 1
 		if self.hold <= 0 then
-			if BVNClip.HasLabel(self.clip, "timeout") then BVNClip.Goto(self.clip, "timeout"); self.stopped = true; self.hitOver = true
-			else self.dead = true end
+			-- A timed-out bullet keeps moving and hitting until its clip ends.
+			if BVNClip.HasLabel(self.clip, "timeout") then BVNClip.Goto(self.clip, "timeout"); self.timedOut = true
+			else self.dead = true return end
 		end
 	end
 	local m = self.battle.map
-	if not self.hitOver and self.y > m.playerBottom then
+	if self.y > m.playerBottom then
 		self:OnHit(nil)
-		self.battle.fx:Shake(1, 0.2)
+		self.battle.fx:Shake(2, 0.2)
+		return
 	end
 	if self.x > m.right + 20 or self.x < m.left - 20 or self.y > m.bottom + 20 then self.dead = true end
 end
@@ -146,17 +152,35 @@ function Bullet:RenderAnimate()
 		self.dead = true
 	elseif here == "hit_over" then
 		self.hitOver = true
-	elseif c.frame >= #c.data.frames then
+	elseif c.frame >= #c.data.frames - 1 then
+		-- Bullet.renderAnimate removes on the last frame but one.
 		self.dead = true
 	end
 end
 
+-- Bullet.hit: another bullet only changes the speed; a fighter costs one hit and gives
+-- the owning fighter qi; the hit speed is halved against a wall.
 function Bullet:OnHit(target)
+	if target and target.kind == "bullet" then
+		if self.hitVx then self.vx = self.hitVx end
+		if self.hitVy then self.vy = self.hitVy end
+		return
+	end
 	if self.hits ~= -1 then
 		self.hits = self.hits - 1
 		if self.hits <= 0 then self:DoHit() end
 	end
-	if target and self.owner.AddQi then self.owner:AddQi(self.hit and self.hit.power * 0.1 or 0) end
+	if target and self.owner.kind == "fighter" then self.owner:AddQi(self.hit and self.hit.power * 0.1 or 0) end
+	if target then
+		if self.hitVx == 0 and self.hitVy == 0 then return end
+		if target.touchSide then
+			local hx, hy = self.hitVx or self.vx, self.hitVy or self.vy
+			self.hitVx = math.abs(hx) < 1 and 0 or hx * 0.5
+			self.hitVy = math.abs(hy) < 1 and 0 or hy * 0.5
+		end
+		if self.hitVx then self.vx = self.hitVx end
+		if self.hitVy then self.vy = self.hitVy end
+	end
 end
 
 function Bullet:DoHit()
@@ -184,10 +208,12 @@ local Attacker = {}
 Attacker.__index = Attacker
 
 local function axisParam(p)
-	if p == nil then return {offset = 0} end
-	if type(p) == "number" then return {offset = p, plain = true} end
+	if p == nil then return {} end
+	if type(p) == "number" then return {num = p} end
 	return p
 end
+
+local function rangeOf(r) return r and (rawget(r, "_a") or r) end
 
 function BVNBullet.Attacker(battle, owner, name, params, hitModel)
 	local px, py, sid = spawnOf(owner, name)
@@ -201,44 +227,48 @@ function BVNBullet.Attacker(battle, owner, name, params, hitModel)
 	a.clip.inst.S_attacker_ctrler = a.ctrl
 	if a.clip.methods and a.clip.methods.setAttackerCtrler then BVNClip.Call(a.clip, "setAttackerCtrler", a.ctrl) end
 	a.dir = owner.dir
-	a.x, a.y = px, py
 	a.vx, a.vy, a.dx, a.dy, a.g = 0, 0, 0, 0, 0
 	a.applyG = params.applyG ~= false
 	a.px, a.py = axisParam(params.x), axisParam(params.y)
+	-- FighterAttacker: the start point is the child's own offset, plus a number param, or
+	-- replaced by {offset}; x mirrors with the owner's facing.
+	local cx, cy = (px - owner.x) * owner.dir, py - owner.y
+	a.startX = a.px.num and (a.px.num + cx) or (a.px.offset or cx)
+	a.startY = a.py.num and (a.py.num + cy) or (a.py.offset or cy)
+	a.x, a.y = owner.x + a.startX * a.dir, owner.y + a.startY
 	a.isAttacking = false
-	a:Place()
+	a:Place(true)
 	BVNClip.Enter(a.clip, 1)
 	return a
 end
 
-function Attacker:Place()
-	local t = self.owner:Target()
+-- init (moveToTarget) and the per-tick follow (followTarget): aim at the target within range.
+function Attacker:Place(init)
+	local o, t = self.owner, self.owner:Target()
 	local px, py = self.px, self.py
-	if px.plain then self.x = self.owner.x + px.offset * self.dir end
-	if px.moveToTarget or px.followTarget then
-		if t then
-			local nx = t.x + (px.offset or 0) * self.dir
-			if px.range then
-				local r = px.range._a or px.range
-				local d = (nx - self.owner.x) * self.dir
-				d = clamp(d, r[1], r[2])
-				nx = self.owner.x + d * self.dir
-			end
-			self.x = nx
+	local mx = init and px.moveToTarget or px.followTarget
+	local my = init and py.moveToTarget or py.followTarget
+	if t and mx then
+		local tx = t.x + self.startX * self.dir
+		local r = rangeOf(px.range)
+		if r then
+			local d = (tx - o.x) * self.dir
+			if d < r[1] then tx = o.x + r[1] * self.dir end
+			if d > r[2] then tx = o.x + r[2] * self.dir end
 		end
-		self.isAttacking = true
+		self.x = tx
 	end
-	if py.moveToTarget or py.followTarget then
-		if t then
-			local ny = t.y + (py.offset or 0)
-			if py.range then
-				local r = py.range._a or py.range
-				ny = t.y + clamp(ny - t.y, r[1], r[2])
-			end
-			self.y = ny
+	if t and my then
+		local ty = t.y + self.startY
+		local r = rangeOf(py.range)
+		if r then
+			local d = ty - o.y
+			if d < r[1] then ty = t.y + r[1] end
+			if d > r[2] then ty = t.y + r[2] end
 		end
-		self.isAttacking = true
+		self.y = ty
 	end
+	if init and (px.moveToTarget or py.moveToTarget) then self.isAttacking = true end
 end
 
 function Attacker:BodyArea() return nil end
@@ -269,19 +299,22 @@ end
 
 function Attacker:Render()
 	if self.dead then return end
-	if self.px.followTarget or self.py.followTarget then self:Place() end
+	if self.px.followTarget or self.py.followTarget then self:Place(false) end
+	local k = self.battle.speedK or 1
+	local sp = 0.5 * k
 	local mx, my = self.vx, self.vy
-	if self.dx > 0 then self.vx = self.vx > 0 and math.max(0, self.vx - self.dx) or math.min(0, self.vx + self.dx) end
-	if self.dy > 0 then self.vy = self.vy > 0 and math.max(0, self.vy - self.dy) or math.min(0, self.vy + self.dy) end
-	self.x = self.x + mx * 0.5
-	self.y = self.y + my * 0.5
+	if self.dx > 0 then self.vx = self.vx > 0 and math.max(0, self.vx - self.dx * k) or math.min(0, self.vx + self.dx * k) end
+	if self.dy > 0 then self.vy = self.vy > 0 and math.max(0, self.vy - self.dy * k) or math.min(0, self.vy + self.dy * k) end
+	self.x = self.x + mx * sp
+	self.y = self.y + my * sp
 	if self.applyG and self.vy >= 0 and self.y < self.battle.map.playerBottom then
-		self.g = math.min(12, self.g + 0.6)
-		self.y = self.y + self.g * 0.5
+		self.g = math.min(12, self.g + 1.2 * sp)
+		self.y = self.y + self.g * sp
 	end
 	local m = self.battle.map
 	if self.y >= m.playerBottom then
 		if self.y > m.playerBottom then self.y = m.playerBottom end
+		self.g = 4
 		if self.touchFloor then
 			local l = self.touchFloor
 			self.touchFloor = nil
@@ -309,11 +342,14 @@ function Attacker:RenderAnimate()
 	local c = self.clip
 	if c.playing then BVNClip.Next(c) end
 	BVNClip.AdvanceKids(c)
-	if c.frame >= #c.data.frames and c.playing ~= false then self.dead = true end
+	if c.frame >= math.max(1, #c.data.frames - 1) and c.playing ~= false then self.dead = true end
 end
 
-function Attacker:OnHit(target)
-	if target then self.owner:AddQi(self.hit and self.hit.power * 0.13 or 0) end
+-- FighterAttacker.hit: the owning fighter gains qi, more for an assist's attacker.
+local function fighterOf(a) return a.owner.fCtrl and a.owner or a.owner.owner end
+
+function Attacker:OnHit(target, h)
+	if target and h then fighterOf(self):AddQi(h.power * (self.owner.kind == "assist" and 0.15 or 0.13)) end
 end
 
 function Attacker:Draw(order)
@@ -329,7 +365,6 @@ function AC:gotoAndPlay(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = t
 function AC:gotoAndStop(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = false end
 function AC:setTouchFloor(l) self.a.touchFloor = l end
 function AC:setHitTarget(checker, l) self.a.hitTarget = {checker, l} end
-local function fighterOf(a) return a.owner.fCtrl and a.owner or a.owner.owner end
 function AC:justHit(id, d) return fighterOf(self.a).fCtrl:justHit(id, d) end
 function AC:getOwner() return fighterOf(self.a) end
 function AC:getTarget() return fighterOf(self.a):Target() end
@@ -405,8 +440,9 @@ function Assist:Finish()
 	self.dead = true
 end
 
-function Assist:OnHit(target)
-	if target then self.owner:AddQi(self.hit and self.hit.power * 0.15 or 0) end
+-- Assister.hit
+function Assist:OnHit(target, h)
+	if target and h then self.owner:AddQi(h.power * 0.15) end
 end
 
 local SC = setmetatable({}, {__index = AC})
@@ -429,4 +465,12 @@ function SC:justHit(id, frame, inclDef)
 end
 function SC:fire(name, params) self.a.battle:FireBullet(self.a, name, params or {}, self.a.hitModel) end
 function SC:addAttacker(name, params) self.a.battle:AddAttacker(self.a, name, params or {}, self.a.hitModel) end
-function SC:checkHitOwner() return false end
+-- AssisterCtrler.checkHitOwner: the named child's rect touches the owner.
+function SC:checkHitOwner(name)
+	local a = self.a
+	local f = a.clip and a.clip.data.frames[a.clip.frame]
+	local r = f and f.hits and f.hits[name]
+	local body = a.owner:RawBody()
+	if not r or #r ~= 4 or not body then return false end
+	return BVNBattle.Intersects(worldRect(a, r), body)
+end

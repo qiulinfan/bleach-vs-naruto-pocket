@@ -48,7 +48,9 @@ the submodules under `external/`; everything converted from them is ignored
 - `BVNFighter`: FighterMain / FighterMC / FighterMcCtrler and the floor, air,
   hurt and defense handlers. `BVNCtrl` holds the `$mc_ctrler`,
   `$effect_ctrler` and `$fighter_ctrler` objects the scripts call.
-- `BVNBullet`: bullets, attackers, assists. `BVNInput`: buffered predicates.
+- `BVNBullet`: bullets, attackers, assists. `BVNInput`: key predicates in the
+  original's default classic mode (a held button repeats); `BVNInput.classic =
+  false` gives the standard mode (6-tick press buffer, quick double jump).
   `BVNAI`: the original rate tables. `BVNBattle`: tick order (60 Hz logic,
   timelines every 2nd tick), hits, push, camera, rounds, HUD. `BVNEffects`:
   hit-stop, slow motion, shake, flashes and stand-in sparks. `BVNMenu`,
@@ -61,6 +63,12 @@ the submodules under `external/`; everything converted from them is ignored
 
 - Not ported yet: the original title, select and loading screens (our own
   layout uses the original faces and config), survivor and musou modes.
+- Known kernel differences: the camera's widest view is 680 px, not the
+  original 800 px with its zoom rules, so the separation limit is smaller; the
+  KO camera focus, background blur and the original shake curve are not
+  reproduced; a bullet re-reads its hit area every frame instead of once at
+  spawn; floor and air handlers stop at the first action taken, where the
+  original runs every check; there is no settings screen for the key mode.
 
 ## Testing
 

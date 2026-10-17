@@ -37,6 +37,8 @@ instMT.__index = function(t, k)
 	if k == "currentFrame" then return clip.frame end
 	if k == "totalFrames" then return #clip.data.frames end
 	if k == "currentLabel" or k == "currentFrameLabel" then return BVNClip.Label(clip) end
+	-- A detached sprite's root clip is placed at the sprite's world position (x / y in scripts).
+	if (k == "x" or k == "y") and clip.owner and clip.owner.clip == clip and clip.owner.kind ~= "fighter" then return clip.owner[k] end
 	local methods = clip.methods
 	local m = methods and methods[k]
 	if m ~= nil then return m end

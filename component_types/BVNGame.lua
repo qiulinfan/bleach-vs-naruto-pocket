@@ -75,10 +75,10 @@ BVNGame = {
 
 	StartBattle = function(self, picks, mapId)
 		local mode = self.mode
-		local opts = {mode = mode, map = mapId, level = self.level or 3,
+		local opts = {mode = mode, map = mapId, level = self.level or 1, hpRate = picks[2].hpRate,
 			p1 = {team = picks[1].team or {picks[1].fighter}, assist = picks[1].assist, cpu = mode == "watch"},
 			p2 = {team = picks[2].team or {picks[2].fighter}, assist = picks[2].assist, cpu = mode ~= "pvp", noAI = mode == "training",
-				hpRate = picks[2].hpRate, attackRate = picks[2].attackRate}}
+				attackRate = picks[2].attackRate}}
 		self.lastPicks, self.lastMap = picks, mapId
 		self.battle = BVNBattle.New(opts)
 		self.match_winner = 0
@@ -109,7 +109,7 @@ BVNGame = {
 		local assist = st and st.assistant
 		if not (assist and BVNMenu.Available(assist, true)) then assist = BVNMenu.Resolve("random", true) end
 		local props = st and st.properties or {}
-		self.level = self.level or 3
+		self.level = self.level or 1
 		self.mode = "arcade"
 		self:StartBattle({a.pick, {team = team, fighter = team[1], assist = assist, hpRate = props.hp_rate, attackRate = props.attack_rate}},
 			st and BVNMaps[st.map] and st.map or "xianshi")
@@ -198,7 +198,7 @@ BVNGame = {
 		self:Init()
 		if name == "start_battle" then
 			self.mode = args.mode or "watch"
-			self.level = args.level or 3
+			self.level = args.level or 1
 			local t1 = args.p1_team or {args.p1 or "ichigo"}
 			local t2 = args.p2_team or {args.p2 or "naruto"}
 			self:StartBattle({{team = t1, fighter = t1[1], assist = args.p1_assist}, {team = t2, fighter = t2[1], assist = args.p2_assist}},

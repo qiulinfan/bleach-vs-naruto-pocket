@@ -20,7 +20,8 @@ local R = {
 	R_BS_H = {.2, .5, 1, 3, 5, 6}, R_BS_J = {.2, .5, 1, 3, 4, 4}, R_BS_D1 = {.2, .5, 1, 3, 2, 1}, R_BS_D2 = {.2, .5, 1, 2, 1, 0},
 	R_BS_HA = {.2, .5, 0, 0, 0, 0}, R_BS_AT = {0, .2, .5, 2, 1, 1}, R_BS_SK = {0, 0, .1, 0, 0, 0},
 	R_CA_N = {0, .5, 1, 3, 2, 1}, R_CA_D = {1, 2, 4, 5, 7, 10}, R_CA_NF = {0, .5, 1, 0, 0, 0}, R_CA_DF = {1, 2, 3, 4, 3, 2},
-	R_BRK = {0, 0, 0, 0, .1, .2}, R_BRK_S = {0, 0, 0, 0, .2, .4}, R_CALL = {0, .02, .05, .05, 0, 0}, R_CALL_D = {0, .02, .05, .1, .3, .5},
+	R_BRK = {0, 0, 0, 0, .1, .2}, R_BRK_S = {0, 0, 0, 0, .2, .4},
+	R_GS = {0, 0, 0, 0, .1, .2}, R_GS_J = {0, 0, .1, .1, .1, .1},
 }
 
 local AI = {}
@@ -28,7 +29,7 @@ AI.__index = AI
 
 BVNAI = {
 	New = function(fighter, level)
-		return setmetatable({f = fighter, level = level or 3, moveFrame = 60, defending = false, orders = {}}, AI)
+		return setmetatable({f = fighter, level = level or 1, moveFrame = 60, defending = false, orders = {}}, AI)
 	end,
 }
 
@@ -54,6 +55,14 @@ end
 
 function AI:CanBeHit() return self.target and self.target.allowBeHit end
 
+-- Whether a HitVO whose id contains `id` satisfies `pred` (isBreakAct / isHitDownAct).
+function AI:HitIs(id, pred)
+	for hid, h in pairs(self.f.hitModel) do
+		if hid:find(id, 1, true) and pred(h) then return true end
+	end
+	return false
+end
+
 function AI:Order(id, order) self.orders[#self.orders + 1] = {id, order} end
 
 function AI:Think()
@@ -74,19 +83,22 @@ function AI:Think()
 	-- Dash.
 	if a.dash then
 		local hit
+		local zero = {[S.ATTACK] = R.R0, [S.SKILL] = R.R0, [S.BISHA] = R.R0, [S.BISHA_SUPER] = R.R0}
 		if f.energy < 40 then
-			if D > 200 and f.dir == toward then hit = self:ByState({default = R.R_DSH1, [S.ATTACK] = R.R_DSH2, [S.SKILL] = R.R_DSH2, [S.BISHA] = R.R0})
-			else hit = self:ByState({default = R.R_DSH3}) end
+			if D > 200 and f.dir == toward then
+				hit = self:ByState({default = R.R_DSH1, [S.ATTACK] = R.R_DSH2, [S.SKILL] = R.R_DSH2, [S.BISHA] = R.R0, [S.BISHA_SUPER] = R.R0})
+			else zero.default = R.R_DSH3; hit = self:ByState(zero) end
 		else
-			if D > 200 and f.dir ~= t.dir then hit = self:ByState({default = R.R_DSH4, [S.ATTACK] = R.R_DSH5, [S.SKILL] = R.R_DSH6, [S.BISHA] = R.R0})
-			else hit = self:ByState({default = R.R_DSH7, [S.ATTACK] = R.R0, [S.SKILL] = R.R0}) end
+			if D > 200 and f.dir ~= t.dir then
+				hit = self:ByState({default = R.R_DSH4, [S.ATTACK] = R.R_DSH5, [S.SKILL] = R.R_DSH6, [S.BISHA] = R.R0, [S.BISHA_SUPER] = R.R0})
+			else zero.default = R.R_DSH7; hit = self:ByState(zero) end
 		end
 		if hit then flags.dash = true end
 	end
 	-- Attack.
 	if (a.attack or a.attackAIR) and self:CanBeHit() then
 		local row = {default = self.conting and R.R_ATK_C or R.R_ATK_D, [S.DEFENSE] = R.R_ATK_DF, [S.HURT_ACT] = R.R_ATK_HA,
-			[S.ATTACK] = R.R_ATK_A, [S.SKILL] = R.R0, [S.BISHA] = R.R0}
+			[S.ATTACK] = R.R_ATK_A, [S.SKILL] = R.R0, [S.BISHA] = R.R0, [S.BISHA_SUPER] = R.R0}
 		if self:ByState(row) then
 			if self.conting then
 				flags.attack = true
@@ -97,34 +109,40 @@ function AI:Think()
 			end
 		end
 	end
-	-- Skills.
+	-- Skills (getSkillAI): ordered only inside a combo, 10 for a knock-down move, else 110.
 	local skills = {{"skill1", "kj1mian", "kj1"}, {"skill2", "kj2mian", "kj2"}, {"zhao1", "zh1mian", "zh1"},
 		{"zhao2", "zh2mian", "zh2"}, {"zhao3", "zh3mian", "zh3"}, {"skillAIR", "tzmian", "tz"}}
 	for _, sk in ipairs(skills) do
-		if a[sk[1]] and self:CanBeHit() then
-			local h = f.hitModel[sk[3]]
-			local brk = h and h.isBreakDef
+		if a[sk[1]] then
 			local row
-			if brk then row = {default = self.conting and R.R_SK_B1 or R.R_SK_B2, [S.DEFENSE] = self.conting and R.R_SK_B3 or R.R_SK_B4}
+			if self:HitIs(sk[3], function(h) return h.isBreakDef end) then
+				row = {default = self.conting and R.R_SK_B1 or R.R_SK_B2, [S.DEFENSE] = self.conting and R.R_SK_B3 or R.R_SK_B4}
 			else row = {default = self.conting and R.R_SK_N1 or R.R_SK_N2, [S.DEFENSE] = R.R_SK_N3} end
-			row[S.HURT_ACT], row[S.ATTACK], row[S.SKILL], row[S.BISHA] = R.R_SK_HA, R.R_SK_AT, R.R0, R.R0
-			if self:ByState(row) and self:InRange(sk[2]) then
+			row[S.HURT_ACT], row[S.ATTACK] = R.R_SK_HA, R.R_SK_AT
+			row[S.SKILL], row[S.BISHA], row[S.BISHA_SUPER] = R.R0, R.R0, R.R0
+			if self:ByState(row) and self:CanBeHit() and self:InRange(sk[2]) then
 				flags[sk[1]] = true
-				self:Order(sk[1], self.conting and 110 or 100)
+				if self.conting then self:Order(sk[1], self:HitIs(sk[3], function(h) return h.hurtType == 1 end) and 10 or 110) end
 			end
 		end
 	end
-	-- Ultimates.
-	local bishas = {{"bisha", "bsmian", "bishaQi", 100}, {"bishaUP", "sbsmian", "bishaUPQi", 100},
-		{"bishaSUPER", "cbsmian", "bishaSUPERQi", 200}, {"bishaAIR", "kbsmian", "bishaAIRQi", 210}}
+	-- Ultimates (getBishaAI): the qi gate is fixed, 300 for the super.
+	local bishas = {{"bisha", "bsmian", "bs", 100, 100}, {"bishaUP", "sbsmian", "sbs", 100, 100},
+		{"bishaSUPER", "cbsmian", "cbs", 300, 200}, {"bishaAIR", "kbsmian", "kbs", 100, 210}}
 	for _, b in ipairs(bishas) do
-		if a[b[1]] and f.qi >= (a[b[3]] or 100) and self:CanBeHit() then
-			local row = {default = self.conting and R.R_BS_N1 or R.R_BS_N2, [S.HURT] = R.R_BS_H, [S.JUMP] = R.R_BS_J,
-				[S.DEFENSE] = self.conting and R.R_BS_D1 or R.R_BS_D2, [S.HURT_ACT] = R.R_BS_HA, [S.ATTACK] = R.R_BS_AT,
-				[S.SKILL] = R.R_BS_SK, [S.BISHA] = R.R_BS_SK}
-			if self:ByState(row) and self:InRange(b[2]) then
+		if a[b[1]] and f.qi >= b[4] then
+			local row
+			if self:HitIs(b[3], function(h) return h.isBreakDef end) then
+				row = {default = self.conting and R.R_BS_B1 or R.R_BS_B2, [S.DEFENSE] = self.conting and R.R_BS_B3 or R.R_BS_B4}
+			else
+				row = {default = self.conting and R.R_BS_N1 or R.R_BS_N2, [S.HURT] = R.R_BS_H, [S.JUMP] = R.R_BS_J,
+					[S.DEFENSE] = self.conting and R.R_BS_D1 or R.R_BS_D2}
+			end
+			row[S.HURT_ACT], row[S.ATTACK] = R.R_BS_HA, R.R_BS_AT
+			row[S.SKILL], row[S.BISHA], row[S.BISHA_SUPER] = R.R_BS_SK, R.R_BS_SK, R.R_BS_SK
+			if self:ByState(row) and self:CanBeHit() and self:InRange(b[2]) then
 				flags[b[1]] = true
-				self:Order(b[1], b[4])
+				if self.conting then self:Order(b[1], b[5]) end
 			end
 		end
 	end
@@ -132,46 +150,58 @@ function AI:Think()
 	if t.state ~= S.HURT and t.state ~= S.HURT_FLY and t.state ~= S.HURT_DOWN then
 		local near = D < 50
 		local row = near and {default = R.R_CA_N, [S.DEFENSE] = R.R_CA_D} or {default = R.R_CA_NF, [S.DEFENSE] = R.R_CA_DF}
-		if a.catch1 and self:ByState(row) then flags.catch1 = true; self:Order("catch1", 150) end
-		if a.catch2 and self:ByState(row) then flags.catch2 = true; self:Order("catch2", 110) end
+		if a.catch1 and self:ByState(row) and self:CanBeHit() then flags.catch1 = true; self:Order("catch1", 150) end
+		if a.catch2 and self:ByState(row) and self:CanBeHit() then flags.catch2 = true; self:Order("catch2", 110) end
 	end
-	-- Assist.
-	if f.fzqi >= 100 and self:ByState({default = R.R_CALL, [S.DEFENSE] = R.R_CALL_D, [S.BISHA] = R.R0}) then flags.special = true end
+	-- The kernel never reads the CPU's assist roll: assists come only from the burst flag.
 
+
+	-- Movement (a guarding CPU walks toward the target, which turns its guard).
+	if f.state == S.DEFENSE then
+		if self:Roll({1, 2, 4, 5, 6, 8}) and D > 20 then flags.move = toward end
+	else
+		local moving = false
+		if self.moveFrame < 60 then
+			moving = true
+			self.moveFrame = self.moveFrame + 1
+		elseif self:ByState({default = R.R_MV, [S.ATTACK] = R.R_MV_ATK, [S.SKILL] = R.R_MV_SK, [S.BISHA] = R.R_MV_BS, [S.BISHA_SUPER] = R.R_MV_BS}) then
+			moving = true
+			self.moveFrame = 0
+		end
+		if moving then
+			local keep = ((flags.catch1 or flags.catch2) and Dy < 2) and 15 or 40
+			if D > keep then flags.move = toward end
+		end
+		if not flags.move then self.moveFrame = 60 end
+	end
+	-- Jump.
+	if self.conting then
+		if self:ByState({default = R.R_JP_C, [S.HURT] = R.R_JP_CH}) then flags.jump = true; self:Order("jump", 10) end
+	elseif f.y - t.y > 50 then
+		if self:ByState({default = R.R_JP_UP, [S.BISHA] = R.R_MV_BS, [S.BISHA_SUPER] = R.R_MV_BS}) then flags.jump = true end
+	elseif self:ByState({default = R.R_JP_LO, [S.BISHA] = R.R_JP_LB, [S.BISHA_SUPER] = R.R_JP_LB}) then
+		flags.jump = true
+	end
 	-- Keep only the highest-order combo action.
 	if #self.orders > 0 then
 		table.sort(self.orders, function(x, y) return x[2] > y[2] end)
 		for i = 2, #self.orders do flags[self.orders[i][1]] = nil end
 		self.orders = {}
 	end
-
-	-- Movement.
-	local moving = false
-	if s == S.DEFENSE then
-		if BVNRuntime.RAND() * 10 < ({1, 2, 4, 5, 6, 8})[math.max(1, math.min(6, self.level))] and D > 20 then moving = true end
-	elseif self.moveFrame < 60 then
-		moving = true
-		self.moveFrame = self.moveFrame + 1
-	elseif self:ByState({default = R.R_MV, [S.ATTACK] = R.R_MV_ATK, [S.SKILL] = R.R_MV_SK, [S.BISHA] = R.R_MV_BS}) then
-		moving = true
-		self.moveFrame = 0
+	-- Drop through a platform (updateJumpDownAI).
+	if f.onFloorVO then
+		local row = f.y < t.y - 50 and {default = R.R_JP_UP, [S.BISHA] = R.R_MV_BS, [S.BISHA_SUPER] = R.R_MV_BS}
+			or {default = R.R_JP_LO, [S.BISHA] = R.R_JP_LB, [S.BISHA_SUPER] = R.R_JP_LB}
+		if self:ByState(row) then flags.jumpDown = true end
 	end
-	if moving then
-		local keep = ((flags.catch1 or flags.catch2) and Dy < 2) and 15 or 40
-		if D > keep then flags.move = toward end
-	else
-		self.moveFrame = 60
-	end
-	-- Jump.
-	if self.conting then
-		if self:ByState({default = R.R_JP_C, [S.HURT] = R.R_JP_CH}) then flags.jump = true end
-	elseif f.y - t.y > 50 then
-		if self:ByState({default = R.R_JP_UP, [S.BISHA] = R.R_MV_BS}) then flags.jump = true end
-	elseif self:ByState({default = R.R_JP_LO, [S.BISHA] = R.R_JP_LB}) then
-		flags.jump = true
+	-- Ghost step (updateGhostStep): close in on a staggered target mid-combo.
+	if D <= 80 and Dy <= 80 and f.qi >= 200 and (s == S.ATTACK or s == S.SKILL) then
+		if self:ByState({default = R.R0, [S.HURT] = R.R_GS}) then flags.ghostStep = true end
+		local up = t.y - f.y
+		if up < -80 and up > -100 and self:ByState({default = R.R0, [S.HURT] = R.R_GS_J}) then flags.ghostJump = true end
 	end
 	-- Quick get-up.
-	if f.isHurtFlying and self:ByState({default = R.R_DJ, [S.SKILL] = R.R0, [S.BISHA] = R.R0}) then flags.dash = true end
+	if f.isHurtFlying and self:ByState({default = R.R_DJ, [S.SKILL] = R.R0, [S.BISHA] = R.R0, [S.BISHA_SUPER] = R.R0}) then flags.dash = true end
 	-- Burst (sticky in the original).
 	if s == S.HURT and f.hp <= f.hpMax * 0.6 and f.qi >= 150 and self:ByState({default = R.R_BRK, [S.SKILL] = R.R_BRK_S}) then
 		self.burst = true
@@ -203,10 +233,7 @@ function AI:Think()
 	if flags.move then
 		if flags.move > 0 then k.right = true else k.left = true end
 	end
-	if guard and not self.conting then
-		k.down = true
-		if t.x ~= f.x then if t.x > f.x then k.right, k.left = false, false else k.left, k.right = false, false end end
-	end
+	if guard and not self.conting then k.down = true end
 	if flags.attack then k:Press("attack") end
 	if flags.skill1 then k.down = true; k:Press("attack") end
 	if flags.skill2 then k.up = true; k:Press("attack") end
@@ -220,5 +247,8 @@ function AI:Think()
 	if flags.catch2 then if toward > 0 then k.right = true else k.left = true end k:Press("skill") end
 	if flags.dash then k:Press("dash") end
 	if flags.jump and not flags.attack then k:Press("jump") end
+	if flags.jumpDown then k.down = true; k:Press("jump") end
+	if flags.ghostStep then k.down = true; k:Press("dash") end
+	if flags.ghostJump then k.up = true; k:Press("dash") end
 	if flags.special then k.special_held = true end
 end

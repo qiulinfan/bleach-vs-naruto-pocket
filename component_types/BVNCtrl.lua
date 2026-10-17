@@ -47,7 +47,6 @@ function McCtrl:dashStop(lose)
 	f:ClearAction()
 	f.isCross = false
 	f.isDashing = false
-	f.applyG = true
 end
 
 function McCtrl:setSteelBody(v, super)
@@ -173,9 +172,10 @@ end
 
 function McCtrl:hurtFly(x, y)
 	local f = self.f
+	f:PlayHurtFly((x or 0) * f.dir, y or 0, false)
 	f.isHurtFlying = true
 	f.state = S.HURT_FLY
-	f:PlayHurtFly((x or 0) * f.dir, y or 0)
+	f.isFalling = false
 end
 
 function McCtrl:getAction() return self.f.act end
@@ -263,9 +263,12 @@ function M:moveToTarget(x, y, setDirect)
 	local t = f:Target()
 	if not t then return end
 	if x ~= nil then
+		-- FighterCtrler.moveToTarget: near either map edge the fighter lands on the open side.
 		local nx = t.x + x * f.dir
-		local b = f.battle.map
-		if x > 0 and (nx < b.left or nx > b.right) then nx = t.x - x * f.dir end
+		if x > 0 then
+			if t.x < x then nx = t.x + x
+			elseif t.x > f.battle.map.right - x then nx = t.x - x end
+		end
 		f.x = nx
 	end
 	if y ~= nil then f.y = t.y + y end
@@ -293,7 +296,7 @@ function M:targetInRange(xr, yr)
 end
 function M:getTargetSP() return self.f:Target() end
 function M:getTarget() return self.f:Target() end
-function M:setTargetVelocity(x, y) local t = self.f:Target() if t then t:SetVelocity((x or 0) * self.f.dir, y or 0) end end
+function M:setTargetVelocity(x, y) local t = self.f:Target() if t then t:SetVelocity(x or 0, y or 0) end end
 function M:setTargetDamping(x, y) local t = self.f:Target() if t then t:SetDamping(x or 0, y or 0) end end
 function M:addHp(v) self.f.hp = math.min(self.f.hpMax, self.f.hp + (v or 0)) end
 function M:addHpPercent(p) self:addHp(self.f.hpMax * (p or 0)) end
@@ -303,10 +306,16 @@ function M:getEnergy() return self.f.energy end
 function M:getEnergyOverload() return self.f.overload end
 function M:loseEnergy(v) self.f:UseEnergy(v or 0) end
 function M:addEnergy(v) self.f.energy = math.min(self.f.energyMax, self.f.energy + (v or 0)) end
-function M:loseQi(v) self.f:UseQi(math.min(self.f.qi, v or 0)) end
+function M:loseQi(v) self.f:UseQi(v or 0) end
 function M:getBuffCtrl()
 	local f = self.f
-	return {attackUp = function(_, rate, sec) f.attackRate = 1 + (rate or 0) f:DelayCall(function() f.attackRate = 1 end, (sec or 5) * 60) end,
-		defenseUp = function(_, rate, sec) f.defenseRate = 1 + (rate or 0) f:DelayCall(function() f.defenseRate = 1 end, (sec or 5) * 60) end,
-		speedUp = function() end}
+	local function fx(id) f.battle.fx:Named(id, f.x, f.y, f.dir) end
+	return {
+		attackUp = function(_, rate, sec) f:AddBuff("attackRate", rate or 0, sec or 5); fx("buff_effect_power") end,
+		defenseUp = function(_, v, sec) f:AddBuff("defenseRate", v or 0, sec or 5); fx("buff_effect_defense") end,
+		speedUp = function(_, v, sec) f:AddBuff("speed", v or 0, sec or 5); fx("buff_effect_speed") end,
+		attackDown = function(_, rate, sec) f:AddBuff("attackRate", rate or 0, sec or 5) end,
+		defenseDown = function(_, v, sec) f:AddBuff("defense", -(v or 0), sec or 5) end,
+		speedDown = function(_, v, sec) f:AddBuff("speed", -(v or 0), sec or 5) end,
+	}
 end

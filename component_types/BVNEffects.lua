@@ -24,9 +24,9 @@ local GUARD = {
 	[3] = {cls = "XG_fyqx", snd = "snd_defx", freeze = 400, follow = true, shine = {0xffffff, 0.1}, shake = 6},
 	[4] = {cls = "XG_mffy", snd = "snd_def", freeze = 50, follow = true},
 	[5] = {cls = "XG_mffyx", snd = "snd_defx", freeze = 400, follow = true, shine = {0xffffff, 0.15}, shake = 6},
-	[7] = {cls = "XG_fire_fy", snd = "snd_defx", freeze = 400, follow = true},
-	[8] = {cls = "XG_ice_fy", snd = "snd_defx", freeze = 400, follow = true},
-	[9] = {cls = "XG_dian_fy", snd = "snd_defx", freeze = 400, follow = true},
+	[7] = {cls = "XG_fire_fy", snd = "snd_defx", freeze = 400, follow = true, shine = {0xFFFF67, 0.2}, shake = 6},
+	[8] = {cls = "XG_ice_fy", snd = "snd_defx", freeze = 400, follow = true, shine = {0xA3E5F5, 0.2}, shake = 6},
+	[9] = {cls = "XG_dian_fy", snd = "snd_defx", freeze = 400, follow = true, shine = {0x8288D2, 0.2}, shake = 6},
 }
 local NAMED = {
 	bisha = {cls = "XG_bs", snd = "snd_bs"}, bisha_super = {cls = "XG_cbs", snd = "snd_cbs"},
@@ -39,7 +39,9 @@ local NAMED = {
 	break_def = {cls = "XG_mfdjx", snd = "snd_mfdjx", freeze = 500, slow = {1.5, 1500}, shake = 6},
 	fz_bleach = {cls = "XG_fz_bleach_mc", snd = "snd_dash"}, fz_naruto = {cls = "XG_fz_naruto_mc", snd = "snd_fz"},
 	replaceSp = {cls = "XG_tishen", snd = "snd_fz"}, explodeSp = {cls = "XG_bsq", snd = "snd_baoqi1"},
-	ghost_step = {cls = "XG_ghost_step", snd = "snd_ghost_step"},
+	ghost_step = {cls = "XG_ghost_step", snd = "snd_ghost_step"}, hit_end = {cls = "xg_hitover"},
+	buff_effect_power = {cls = "xg_buff_effect_power"}, buff_effect_defense = {cls = "xg_buff_effect_defense"},
+	buff_effect_speed = {cls = "xg_buff_effect_speed"},
 }
 
 local Fx = {}
@@ -77,6 +79,7 @@ function Fx:Update()
 end
 
 function Fx:Freeze(ms)
+	if self.noFreeze then return end
 	local n = math.floor(ms * 0.06)
 	if n > self.freeze then self.freeze = n end
 end
@@ -87,9 +90,15 @@ function Fx:Slow(rate, ms)
 	self.slowT = math.floor(ms * 0.06)
 end
 
+-- slowDown(rate, 0): no time limit, until EndSlow (the KO fall).
+function Fx:SlowOpen(rate)
+	self.slowRate, self.slowT = rate, math.huge
+end
+function Fx:EndSlow() self.slowRate, self.slowT = 1, 0 end
+
 function Fx:Shake(pow, sec)
 	self.shake = math.max(self.shake, pow or 3)
-	self.shakeT = math.max(self.shakeT, math.floor((sec and sec > 0 and sec or 0.25) * 60))
+	self.shakeT = math.max(self.shakeT, math.floor((sec and sec > 0 and sec or 0.5) * 60))
 end
 function Fx:StartShake(pow) self.sustained = pow or 3 end
 function Fx:EndShake() self.sustained = 0 end

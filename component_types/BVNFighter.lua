@@ -81,6 +81,7 @@ function BVNFighter.New(battle, char, form, side, input)
 	f.currentHurtDamage = 0
 	f.combo = 0
 	f.ghosts = {}
+	f.explodeHitFrame, f.explodeSteelFrame = 0, 0
 
 	f.mcCtrl = setmetatable({f = f}, {__index = BVNCtrl.Mc})
 	f.effCtrl = setmetatable({f = f}, {__index = BVNCtrl.Eff})
@@ -217,7 +218,7 @@ function Fighter:CurrentHits()
 			if h then out[#out + 1] = {h, self:WorldRect(r)} end
 		end
 	end
-	if self.explodeHit then out[#out + 1] = self.explodeHit end
+	if self.explodeHit and self.explodeHitFrame < 8 then out[#out + 1] = self.explodeHit end
 	return out
 end
 
@@ -400,6 +401,7 @@ function Fighter:Idle(frame, ignoreAlive)
 	self:ClearAction()
 	self:ClearState()
 	self.isMoving, self.isDefensing, self.isDashing, self.isJumping, self.isFalling = false, false, false, false, false
+	self.isDefense = false
 	self.doingAction, self.doingAirAction = nil, nil
 	self.state = S.NORMAL
 	self.allowBeHit = not self.justHurtResume
@@ -430,6 +432,7 @@ end
 
 function Fighter:Render()
 	self:RenderVelocity()
+	self:RenderBuffs()
 	runTimers(self.delayCalls)
 	self.justDefenseFrame = self.justDefenseFrame - 1
 	if self.moveTarget then self:RenderMoveTarget() end
@@ -479,11 +482,24 @@ function Fighter:RenderAnimate()
 	self.doActionFrame = self.doActionFrame + 1
 	if self.isDefensing then self:RenderDefenseAnimate() end
 	if self.state == S.NORMAL and self:CurLabel() == "站立" and self.fmc.curFrameCount % 6 == 0 then self:FaceTarget() end
-	if self.explodeHit then
-		self.explodeFrame = self.explodeFrame + 1
-		if self.explodeFrame >= 8 then self.explodeHit = nil end
+	self:RenderEnergy()
+	-- FighterMain.renderAnimate: the burst hit is live while its counter runs 7..1 of 10;
+	-- its super armour is reasserted every A for 60 A.
+	if self.explodeHitFrame > 0 then
+		self.explodeHitFrame = self.explodeHitFrame - 1
+		if self.explodeHitFrame == 8 then
+			self:Idle()
+			self.allowBeHit = false
+		end
+		if self.explodeHitFrame <= 0 then
+			self.explodeHit = nil
+			self.allowBeHit = true
+		end
 	end
-	if self.battle.actionEnable then self:RenderEnergy() end
+	if self.explodeSteelFrame > 0 then
+		self.explodeSteelFrame = self.explodeSteelFrame - 1
+		self.steel, self.steelSuper = self.explodeSteelFrame > 0, self.explodeSteelFrame > 0
+	end
 	self.fzqi = math.min(self.fzqiMax, self.fzqi + 0.2)
 end
 
@@ -630,8 +646,11 @@ function Fighter:RenderDefense(fromFloor, hiting)
 		return
 	end
 	if hiting and want ~= self.dir then
+		-- setDefenseAction(false, true): turn and re-enter 防御 without resetting the windows.
 		self.dir = want
 		self.isDefense = true
+		self.defenseFrameDelay = 1
+		self:GoFrame("防御", true, 3)
 	end
 	if fromFloor then
 		local a = self.act
@@ -642,35 +661,26 @@ function Fighter:RenderDefense(fromFloor, hiting)
 end
 
 function Fighter:RenderDefenseAnimate()
-	local k = self.input
-	self.defenseFrameDelay = self.defenseFrameDelay - 1
-	if k:defense() then
-		if self.defenseFrameDelay < 0 then self.isDefense = true end
+	if self.isDefenseHiting then return end
+	local d = self.defenseFrameDelay
+	self.defenseFrameDelay = d - 1
+	if d > 0 then return end
+	if self.battle.actionEnable and self.input:defense() then
+		self.isDefense = true
 		return
 	end
-	if self.defenseFrameDelay < -5 and not self.isDefenseHiting then
-		self.isDefensing = false
-		self.isDefense = false
-		self:GoFrame("防御恢复", false)
-		self:FrameOut(function() if self.state == S.DEFENSE or self.state == S.NORMAL then self:Idle() end end, 1)
-	end
+	if self.defenseFrameDelay > -5 then return end
+	-- Still guarding through 防御恢复 until idle runs one A later.
+	self.isDefensing = false
+	self:GoFrame("防御恢复", false, 0, {delay = 1, call = function() self:Idle() end})
 end
 
+-- After the guard knockback the fighter simply keeps guarding.
 function Fighter:RenderDefenseHiting()
 	if self.defenseHold > 0 then
 		self.defenseHold = self.defenseHold - 1
-		return
-	end
-	if self.vx == 0 then
+	elseif self.vx == 0 then
 		self.isDefenseHiting = false
-		if self.input:defense() and self.alive then
-			self.state = S.DEFENSE
-			self.isDefensing = true
-			self:SetDefenseAction()
-			self.isDefense = true
-		else
-			self:Idle()
-		end
 	end
 end
 
@@ -750,7 +760,7 @@ function Fighter:RenderAirAction()
 	if ok("skillAIR", "skillAIR") and self:DoAirSkill(a.skillAIR) then return end
 	if ok("bishaAIR", "bishaAIR") and self:DoAirBisha(a.bishaAIR) then return end
 	if (a.jump and k:jump()) or (a.jumpQuick and k:jumpQuick()) then
-		if self.act.jumpTimes > 0 and not self.isJumping then self:DoAirJump() return end
+		if self.act.jumpTimes > 0 then self:DoAirJump() return end
 	end
 	if self:IsAttacking() then
 		if ok("bishaSUPER", "bishaSUPER") and self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) then return end
@@ -766,7 +776,6 @@ function Fighter:RenderAirAction()
 	if ok("dash", "dash") and self.act.jumpTimes >= 1 and self:HasEnergy(30, true) then
 		self:UseEnergy(30)
 		self.act.jumpTimes = 0
-		if k:moveLEFT() then self.dir = -1 elseif k:moveRIGHT() then self.dir = 1 end
 		self:DoAction("瞬步")
 		self.state = S.DASH
 		self.allowBeHit, self.applyG = false, false
@@ -894,9 +903,13 @@ function Fighter:TouchFloor()
 	end
 end
 
+-- FighterMcAirHandler: drop through a platform at speed 5 (platforms refuse vy >= 2.5).
 function Fighter:DoJumpDown()
-	self.ignoreFloor = 12
 	self:Fall()
+	self.y = self.y + 1
+	self:SetVelocity(0, 5)
+	self:SetDamping(0, 1)
+	self.act.jumpTimes = 0
 end
 
 -- Bankai -------------------------------------------------------------------------------
@@ -905,11 +918,12 @@ function Fighter:RenderWanKai()
 	local k = self.input
 	if not k:waiKai() then return false end
 	local a = self.act
-	local label = nil
-	if k.up and a.waiKaiW then label = a.waiKaiW
-	elseif k.down and a.waiKaiS then label = a.waiKaiS
-	elseif a.waiKai then label = a.waiKai end
-	if not label and self:CurLabel() == "砍1" and self.doActionFrame < 2 then label = "万解" end
+	-- waiKai / waiKaiW (+up) / waiKaiS (+down); early in 砍1 each falls back to 万解 / 万解W / 万解S.
+	local key = k.up and "waiKaiW" or (k.down and "waiKaiS" or "waiKai")
+	local label = a[key]
+	if not label and self:CurLabel() == "砍1" and self.doActionFrame < 2 then
+		label = ({waiKai = "万解", waiKaiW = "万解W", waiKaiS = "万解S"})[key]
+	end
 	if not label or not self:HasLabel(label) then return false end
 	if not self:UseQi(300) then return false end
 	self.state = S.WANKAI
@@ -936,7 +950,7 @@ function Fighter:BeHitInner(h, rect)
 	if self.act.hurtAction then
 		local label = self.act.hurtAction
 		self:DoAction(label)
-		self.state = S.SKILL
+		self.state = S.HURT_ACT
 		return
 	end
 	if self.touchSide and owner and owner.isAllowReversePush ~= false and owner.SetVec2 and math.abs(self.x - owner.x) < 100 then
@@ -978,13 +992,13 @@ function Fighter:DoHurtAnimate(h)
 		if hy <= 0 then hy = hy - 3 end
 	elseif hy < 0 then
 		hy = hy - 6
-		self.inAir = true
 	end
 	self:ClearState()
 	self:ClearAction()
 	self.doingAction, self.doingAirAction = nil, nil
 	self.isMoving, self.isDefensing, self.isDashing, self.isJumping, self.isFalling = false, false, false, false, false
 	self.isDefense = false
+	self.applyG = true
 	self.steel = false
 	self.effCtrl:endShadow()
 	self.effCtrl:endShake()
@@ -1006,14 +1020,13 @@ function Fighter:DoHurtAnimate(h)
 end
 
 function Fighter:RenderHurtAnimate()
-	self.hurtHold = self.hurtHold - 1
-	if self.hurtHold > 0 then return end
+	-- `if (_hurtHoldFrame-- <= 0)`: the stagger ends on call hold + 1.
+	if self.hurtHold > 0 then self.hurtHold = self.hurtHold - 1 return end
 	self.isHurting = false
 	if not self.alive then
 		if self.inAir then
-			self.isHurtFlying = true
-			self.state = S.HURT_FLY
-			self:PlayHurtFly(self.vx, self.vy)
+			-- hurtFly(vec2): the second velocity, mirrored by facing, straight to 击飞.
+			self.mcCtrl:hurtFly(self.v2x, self.v2y)
 		else
 			self:PlayHurtDown()
 		end
@@ -1029,7 +1042,12 @@ end
 function Fighter:DoDefenseHit(h, rect)
 	local dmg = damageOf(h)
 	self:LoseHp(dmg * 0.05)
-	if self.hp <= 0 then self.hp = 1 end
+	if self.alive and self.hp <= 0 and not self.battle.training then
+		self.alive = false
+		self.battle:OnDie(self)
+		self:DoHurt(h, rect)
+		return
+	end
 	self.defenseHit = h
 	local cost = h.isBreakDef and self.energyMax * 0.9 or math.min(dmg * 0.2, 50)
 	cost = BVNRuntime.INT(cost)
@@ -1056,7 +1074,7 @@ function Fighter:DoBreakDefense(h)
 	self.allowBeHit, self.beHitGap = false, h.hurtType == 1 and 10 or 4
 	self.overload = false
 	self.isDefense, self.isDefensing, self.isDefenseHiting = false, false, false
-	local hx = clamp(math.abs(h.hitx), 5, 10) * (h.owner and h.owner.dir or 1)
+	local hx = clamp(h.hitx, 5, 10) * (h.owner and h.owner.dir or 1)
 	self:ClearAction()
 	self.isHurting = true
 	self.hurtHold = 42
@@ -1075,11 +1093,10 @@ function Fighter:DoSteelHurt(h, rect)
 	end
 	if self.steelSuper then
 		self:LoseHp(dmg * 0.3)
-		self.energy = math.max(0, self.energy - dmg * 0.2)
+		self:UseEnergy(dmg * 0.2)
 	else
 		self:LoseHp(dmg * 0.65)
-		self.energy = self.energy - (h.isBreakDef and dmg or dmg * 0.4)
-		if self.energy < 0 then self.energy, self.overload = 0, true end
+		self:UseEnergy(h.isBreakDef and dmg or dmg * 0.4)
 		local m = h.isBreakDef and 2 or 1
 		local dir = h.owner and h.owner.dir or 1
 		self:SetVec2(h.hitx * dir * m, h.hity * m, math.abs(h.hitx * 0.1), math.abs(h.hity * 0.1))
@@ -1090,11 +1107,16 @@ function Fighter:DoSteelHurt(h, rect)
 end
 
 -- Launch state machine (FighterMC.playHurtFly / renderHurtFly).
-function Fighter:PlayHurtFly(hx, hy)
+function Fighter:PlayHurtFly(hx, hy, showBeHit)
 	if hx ~= 0 then self.dir = hx > 0 and -1 or 1 end
 	local m = self.fmc
-	self:GoFrame("被打", false)
-	self:FrameOut(function() if self.fmc.hurtFly == 1 then self:GoFrame("击飞", false) end end, 1)
+	self.downCounter = 0
+	if showBeHit == false then
+		self:GoFrame("击飞", false)
+	else
+		self:GoFrame("被打", false)
+		self:FrameOut(function() if self.fmc.hurtFly == 1 then self:GoFrame("击飞", false) end end, 1)
+	end
 	m.heavy = hy > 5
 	m.hurtFlyFrame = (m.heavy or self.inAir) and 0 or 15
 	self:SetVelocity(hx, hy)
@@ -1107,11 +1129,14 @@ end
 
 function Fighter:PlayHurtDown()
 	local m = self.fmc
-	self:GoFrame("击飞_弹", false)
-	self:FrameOut(function() self:GoFrame("击飞_倒", false) end, 2)
-	m.downFrame = 15
-	m.hurtFly = 4
-	self.state = S.HURT_DOWN
+	m.hurtFly = 0
+	self:GoFrame("击飞_弹", false, 0, {delay = 2, call = function()
+		self:GoFrame("击飞_倒", false)
+		m.downFrame = 15
+		m.hurtFly = 4
+		self.state = S.HURT_DOWN
+	end})
+	self.battle.fx:Shake(4)
 	self:SetDamping(2, 0)
 end
 
@@ -1133,15 +1158,15 @@ function Fighter:RenderHurtFly()
 				self.state = S.HURT_DOWN
 				self:SetDamping(4, 0)
 				m.downFrame = 30
-				self.battle.fx:Shake(clamp(drop * 0.04 * (1 + (m.hity or 0) * 0.1), 2, 5))
+				self.battle.fx:Shake(2 * clamp(drop * 0.04 * (1 + (m.hity or 0) * 0.1), 2, 5))
 				self.battle.fx:Effect("hit_floor_heavy", self.x, self.y, self.dir)
 				m.hurtFly, m.stateFrames = 4, 0
 			else
 				self:GoFrame("击飞_弹", false)
 				self.vy = -clamp(drop * 0.04, 3, 8)
-				self.inAir = true
 				self.state = S.HURT_DOWN_TAN
-				self.battle.fx:Shake(clamp(drop * 0.04, 0.5, 3))
+				-- FighterEffectCtrl.hitFloor doubles the power; the clamped bounce speed is >= 3.
+				self.battle.fx:Shake(6)
 				self.battle.fx:Effect("hit_floor", self.x, self.y, self.dir)
 				m.hurtFly, m.stateFrames = 3, 0
 				self.downCounter = 1
@@ -1154,7 +1179,7 @@ function Fighter:RenderHurtFly()
 			m.downFrame = 15
 			self.state = S.HURT_DOWN
 			self.battle.fx:Effect("hit_floor_low", self.x, self.y, self.dir)
-			self.battle.fx:Shake(1)
+			self.battle.fx:Shake(2)
 			m.hurtFly, m.stateFrames = 4, 0
 		end
 	elseif m.hurtFly == 4 then
@@ -1178,7 +1203,8 @@ function Fighter:RenderHurtFlying()
 	if self.state == S.HURT_DOWN_TAN then self.downCounter = 1 end
 	if (self.downCounter or 0) > 0 then
 		self.downCounter = self.downCounter + 1
-		if self.downCounter < 20 and self.input:dashJump() and self.currentHurtDamage <= 240 and self:HasEnergy(30) and self.alive then
+		if self.downCounter < 20 and self.battle.actionEnable and self.doingAction ~= "起身" and self.input:dashJump()
+			and self.currentHurtDamage <= 240 and self:HasEnergy(30) and self.alive then
 			self.fmc.hurtFly = 0
 			self.isHurtFlying = false
 			self:UseEnergy(30)
@@ -1186,8 +1212,8 @@ function Fighter:RenderHurtFlying()
 			self:DoAction("起身")
 			self.allowBeHit = false
 			self.vx = vx
-			self.dx = math.abs(vx * 0.1)
-			self.state = S.NORMAL
+			-- setDamping(vecx * 0.1) is signed: a negative speed is never damped.
+			self.dx = vx * 0.1
 			self.battle:OnHurtResume(self)
 		end
 	end
@@ -1213,12 +1239,12 @@ function Fighter:RenderHurtBreak()
 	else
 		self:Idle()
 		self.steel, self.steelSuper = true, true
-		self:DelayCall(function() self.steel, self.steelSuper = false, false end, 120)
+		self.explodeSteelFrame = 60
 		local h = newHitVO("explode", {power = 50, hitx = 15, hity = 0, hitType = 5, hurtType = 1}, self)
 		local r = {self.x - 100, self.y - 200, 200, 210}
 		self.explodeHit = {h, r}
-		self.explodeFrame = 0
-		self.allowBeHit, self.beHitGap = false, 10
+		self.explodeHitFrame = 10
+		self.allowBeHit = false
 		self.battle.fx:Named("explodeSp", self.x, self.y - 60, self.dir)
 		self.battle:Pause(42)
 	end
@@ -1244,6 +1270,38 @@ function Fighter:RenderMoveTarget()
 		if sy ~= 0 then t.vy = sign(ay - t.y) * sy; t.dy = 1 end
 	else
 		t.x, t.y = ax, ay
+	end
+end
+
+-- FighterMain.attackRate setter: the rate becomes powerRate of every HitVO defined
+-- so far (moves a later form defines start again at 1, as in the original).
+function Fighter:SetAttackRate(v)
+	self.attackRate = v
+	for _, h in pairs(self.hitModel) do h.powerRate = v end
+end
+
+-- FighterBuffCtrler: a buff changes one field for `hold` seconds, then restores it.
+function Fighter:AddBuff(param, value, hold)
+	self.buffs = self.buffs or {}
+	local b = self.buffs[param]
+	if not b then
+		b = {resume = self[param]}
+		self.buffs[param] = b
+	end
+	b.frames = (hold or 5) * 60
+	local v = b.resume + value
+	if param == "attackRate" then self:SetAttackRate(v) else self[param] = v end
+	return b
+end
+
+function Fighter:RenderBuffs()
+	if not self.buffs then return end
+	for param, b in pairs(self.buffs) do
+		b.frames = b.frames - 1
+		if b.frames <= 0 then
+			if param == "attackRate" then self:SetAttackRate(b.resume) else self[param] = b.resume end
+			self.buffs[param] = nil
+		end
 	end
 end
 
