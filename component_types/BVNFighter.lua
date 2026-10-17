@@ -1247,6 +1247,16 @@ function Fighter:RenderMoveTarget()
 	end
 end
 
+-- Script-facing FighterMain methods (assist scripts reach the owner and target directly).
+function Fighter:getCtrler() return self.fCtrl end
+function Fighter:getBuffCtrl() return self.fCtrl:getBuffCtrl() end
+function Fighter:getCurrentTarget() return self end
+function Fighter:getMcCtrl() return self.mcCtrl end
+function Fighter:useEnergy(v) self:UseEnergy(v or 0) end
+function Fighter:addHp(v) self.hp = math.min(self.hpMax, self.hp + (v or 0)) end
+function Fighter:loseHp(v) self:LoseHp(v or 0) end
+function Fighter:getIsTouchSide() return self.touchSide end
+
 -- Voices ------------------------------------------------------------------------------------
 
 function Fighter:Voice(kind)

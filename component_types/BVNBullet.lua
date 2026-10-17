@@ -26,6 +26,10 @@ local function ctrlMT(methods)
 		if k == "owner_fighter_ctrler" then return fighter.fCtrl end
 		if k == "owner_mc_ctrler" then return fighter.mcCtrl end
 		if k == "camera" then return nil end
+		if k == "hitModel" then
+			local model = rawget(a, "hitModel") or fighter.hitModel
+			return {getHitVO = function(_, id) return model[id] end}
+		end
 		local m = methods[k]
 		if m ~= nil then return m end
 		return function() end
@@ -325,7 +329,11 @@ function AC:gotoAndPlay(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = t
 function AC:gotoAndStop(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = false end
 function AC:setTouchFloor(l) self.a.touchFloor = l end
 function AC:setHitTarget(checker, l) self.a.hitTarget = {checker, l} end
-function AC:justHit(id, d) return self.a.owner.fCtrl:justHit(id, d) end
+local function fighterOf(a) return a.owner.fCtrl and a.owner or a.owner.owner end
+function AC:justHit(id, d) return fighterOf(self.a).fCtrl:justHit(id, d) end
+function AC:getOwner() return fighterOf(self.a) end
+function AC:getTarget() return fighterOf(self.a):Target() end
+function AC:getSelf() return self.a end
 function AC:moveToTarget(ox, oy)
 	local a = self.a
 	local t = a.owner:Target()
@@ -405,7 +413,7 @@ local SC = setmetatable({}, {__index = AC})
 BVNBullet.AssistCtrl = SC
 function SC:defineAction(id, obj) self.a.hitModel[id] = BVNFighter.NewHitVO(id, obj, self.a) end
 function SC:finish() self.a:Finish() end
-function SC:getOwner() return self.a.owner.fCtrl end
+function SC:getOwner() return self.a.owner end
 function SC:setDirectToTarget()
 	local t = self.a.owner:Target()
 	if t then self.a.dir = t.x >= self.a.x and 1 or -1 end
@@ -415,7 +423,7 @@ function SC:moveToTarget(x, y, setDirect)
 	if setDirect == nil or BVNRuntime.T(setDirect) then self:setDirectToTarget() end
 end
 function SC:justHit(id, frame, inclDef)
-	local ok = self.a.owner.fCtrl:justHit(id, inclDef)
+	local ok = fighterOf(self.a).fCtrl:justHit(id, inclDef)
 	if ok and frame then BVNClip.Goto(self.a.clip, frame); self.a.clip.playing = true end
 	return ok
 end

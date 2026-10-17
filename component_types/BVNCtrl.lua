@@ -291,10 +291,8 @@ function M:targetInRange(xr, yr)
 	if yr and (dy < yr[1] or dy > yr[2]) then return false end
 	return true
 end
-function M:getTargetSP()
-	local f = self.f
-	return {getCurrentTarget = function() return f:Target() end}
-end
+function M:getTargetSP() return self.f:Target() end
+function M:getTarget() return self.f:Target() end
 function M:setTargetVelocity(x, y) local t = self.f:Target() if t then t:SetVelocity((x or 0) * self.f.dir, y or 0) end end
 function M:setTargetDamping(x, y) local t = self.f:Target() if t then t:SetDamping(x or 0, y or 0) end end
 function M:addHp(v) self.f.hp = math.min(self.f.hpMax, self.f.hp + (v or 0)) end

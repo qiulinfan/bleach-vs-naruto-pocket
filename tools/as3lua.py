@@ -462,7 +462,8 @@ class Emitter:
                 return "math"
             if n in self.locals or n.startswith("_"):
                 return ident(n)
-            if n in self.dynamic:
+            if n in self.dynamic or n.startswith("$"):
+                # $-names are controllers the kernel sets on the clip ($attacker_ctrler, ...).
                 return "self." + ident(n)
             # Any other bare name is a class (bitmap faces, sounds, effects).
             return 'BVN_CLASS("%s")' % n
