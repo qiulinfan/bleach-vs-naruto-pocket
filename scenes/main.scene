@@ -1,0 +1,12 @@
+{
+  "actors": [
+    {
+      "uid": 1,
+      "name": "Game",
+      "components": {
+        "transform": {"type": "Transform"},
+        "game": {"type": "BVNGame"}
+      }
+    }
+  ]
+}
