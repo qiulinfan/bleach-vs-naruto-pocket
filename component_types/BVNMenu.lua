@@ -51,7 +51,7 @@ BVNMenu = {
 	-- Swf-backed fighters and assists only (the converter may have skipped some).
 	Available = function(id, assist)
 		local info = assist and BVNMenu.AssistInfo(id) or BVNMenu.FighterInfo(id)
-		if not info then return false end
+		if not (info and info.urls and info.urls.file) then return false end
 		local file = info.urls.file:gsub("%.swf$", "")
 		return BVNRuntime.HasCharacter((assist and "fz_" or "") .. file)
 	end,
@@ -316,7 +316,7 @@ BVNMenu = {
 			local info = id and BVNMenu.FighterInfo(id)
 			local px = s == 1 and 20 or 535
 			if info then
-				img(faceFile(info.urls.face_big), px, 470, 1, 255, 2)
+				if info.urls.face_big then img(faceFile(info.urls.face_big), px, 470, 1, 255, 2) end
 				text(info.name, px + 122, 540, 20, WHITE)
 			end
 			if pick and pick.team and #pick.team > 1 or (g.team and pick) then
