@@ -66,11 +66,11 @@ def convert_map(path):
     # MapLayer.normalize hides the portal logos; render from a copy without them.
     render_swf = path
     xml_text = xml.read_text(encoding="utf-8")
-    if 'name="logo4399"' in xml_text or 'name="logo_mine"' in xml_text:
+    if any('name="%s"' % n in xml_text for n in ("logo4399", "logo_mine", "logo_main")):
         tree = ET.parse(xml)
         for parent in tree.getroot().iter():
             for t in list(parent):
-                if t.get("type") == "TagStub" or t.get("name") in ("logo4399", "logo_mine"):
+                if t.get("type") == "TagStub" or t.get("name") in ("logo4399", "logo_mine", "logo_main"):
                     parent.remove(t)
         stripped = work / "nologo.xml"
         tree.write(stripped, encoding="utf-8")
@@ -97,6 +97,36 @@ def convert_map(path):
         out["layers"][name] = {"img": "bvn/map/%s/%s.png" % (mid, name), "x": round(m[4] + x0 * m[0], 1),
                                "y": round(m[5] + y0 * m[3], 1), "sx": round(m[0], 4), "sy": round(m[3], 4),
                                "w": im.width, "h": im.height}
+    # Front layers fade the movie clips a fighter stands behind (MapLayer.renderOptical),
+    # so their children are rendered one by one.
+    for name in ("front", "front_fix"):
+        o = named.get(name)
+        if not o or o["cid"] not in swf.sprites:
+            continue
+        parts = []
+        children = [c for _, c in sorted(swf.timeline(o["cid"])[0][0].items())]
+        for i, ch in enumerate(children):
+            if ch.get("name") in ("logo4399", "logo_mine", "logo_main"):
+                continue
+            cid = ch["cid"]
+            kind = "sprite" if cid in swf.sprites else ("shape" if cid in swf.shapes else None)
+            r = swf.bounds(cid)
+            if not kind or not r:
+                continue
+            tmp = work / ("part_%s_%s" % (name, cid))
+            if not tmp.exists():
+                ffdec("-selectid", cid, "-format", "%s:png" % kind, "-export", kind, str(tmp), str(render_swf))
+            pngs = sorted(tmp.rglob("*.png"), key=lambda p: int(re.sub(r"\D", "", p.stem) or 0))
+            if not pngs:
+                continue
+            im = Image.open(pngs[0]).convert("RGBA")
+            fname = "%s_%d.png" % (name, i)
+            im.save(out_dir / fname, optimize=True)
+            m = swfxml.mul(o["m"], ch["m"])
+            parts.append({"img": "bvn/map/%s/%s" % (mid, fname), "x": round(m[4] + r[0] * m[0], 1), "y": round(m[5] + r[1] * m[3], 1),
+                          "sx": round(m[0], 4), "sy": round(m[3], 4), "w": im.width, "h": im.height, "clip": kind == "sprite"})
+        if parts and name in out["layers"]:
+            out["layers"][name]["parts"] = parts
     print("[map %s] layers %s" % (mid, ",".join(out["layers"])), flush=True)
     return out
 
@@ -114,6 +144,8 @@ def main():
     for sub, dst in (("face", ROOT / "images" / "bvn" / "face"), ("bgm", ROOT / "audio" / "bvn" / "bgm")):
         shutil.rmtree(dst, ignore_errors=True)
         shutil.copytree(ASSETS / sub, dst)
+    for f in (ASSETS / "sounds").glob("*.mp3"):
+        shutil.copy(f, ROOT / "audio" / "bvn" / f.name)
     ui = ROOT / "images" / "bvn" / "ui"
     ui.mkdir(parents=True, exist_ok=True)
     shutil.copy(args.config.parents[3] / "title.png", ui / "title.png")

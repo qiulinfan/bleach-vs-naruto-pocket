@@ -108,7 +108,7 @@ function Fighter:SetForm(n)
 	n = clamp(n, 1, #forms)
 	self.formIndex = n
 	local form = forms[n]
-	self.formOffset = {form.x, form.y}
+	self.formOffset = {form.x, form.y, form.sx or 1, form.sy or 1}
 	local clip = BVNClip.New(self.char, form.sprite, self.mainInst, self)
 	self.clip = clip
 	self.mainInst.mc = clip.inst
@@ -188,9 +188,10 @@ function Fighter:CurLabel() return BVNClip.Label(self.clip) end
 
 -- World rect of an action-clip-local rect {x, y, w, h}.
 function Fighter:WorldRect(r)
-	local ox, oy = self.formOffset[1], self.formOffset[2]
-	local x = (r[1] + ox) * self.dir + self.x - (self.dir < 0 and r[3] or 0)
-	return {x, r[2] + oy + self.y, r[3], r[4]}
+	local fo = self.formOffset
+	local w, h = r[3] * fo[3], r[4] * fo[4]
+	local x = (r[1] * fo[3] + fo[1]) * self.dir + self.x - (self.dir < 0 and w or 0)
+	return {x, r[2] * fo[4] + fo[2] + self.y, w, h}
 end
 
 function Fighter:BodyArea()
@@ -231,7 +232,8 @@ end
 function Fighter:ChildPos(name)
 	local f = self:Frame()
 	local p = f and f.hits and f.hits["@" .. name]
-	if p then return self.x + (p[1] + self.formOffset[1]) * self.dir, self.y + p[2] + self.formOffset[2] end
+	local fo = self.formOffset
+	if p then return self.x + (p[1] * fo[3] + fo[1]) * self.dir, self.y + p[2] * fo[4] + fo[2] end
 	return nil
 end
 

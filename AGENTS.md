@@ -19,7 +19,13 @@ the submodules under `external/`; everything converted from them is ignored
   stripped), bounds lines, floors and spawn points into `BVNMaps`; faces, BGM
   and the 5DPLAY config (`fighter.json`, `assist.json`, `map.json`,
   `select.xml`) into `BVNConfig`.
-- `tools/swfxml.py` reads FFDec XML timelines; `tools/as3lua.py` turns AS3
+- `tools/convert_effects.py`: the shared effect library (hit / guard sparks,
+  dust, ultimate flashes) and its sounds from the FlashSrc effect XFL: a small
+  XFL timeline compositor (bitmap and symbol instances, decompiled bitmap-fill
+  shapes, classic tweens, alpha) plus decoders for `bin/*.dat` bitmaps
+  (0x0305 ARGB, 0x0303 palette) and raw PCM sounds. Output: `BVNFxData`.
+- `tools/swfxml.py` reads FFDec XML timelines (Flash ignores a non-move
+  placement on an occupied depth; obfuscated SWFs rely on that); `tools/as3lua.py` turns AS3
   classes into Lua tables (`fields`, `methods`, `frames`). Helpers it calls
   live in `BVNRuntime` (AS3 truthiness, arrays, deterministic random).
 
@@ -44,9 +50,9 @@ the submodules under `external/`; everything converted from them is ignored
 
 ## Open work
 
-- The shared hit/guard effect clips and their sounds (XG_kan2, snd_kan1, ...)
-  live in 5DPLAY's `BleachVsNaruto_FlashSrc` effect XFL; they are approximated
-  by `BVNEffects`. Converting them needs an XFL reader.
+- Effects are drawn with normal blending; additive ones are stored with
+  brightness as alpha (`tools/convert_effects.py`), an approximation of the
+  original ADD blend mode, which the engine does not offer.
 - Ghost step (瞬步 variants with L+direction) and team mode are not ported.
 
 ## Testing

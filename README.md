@@ -39,7 +39,7 @@ The assets are not stored in this repository. They come from two Git
 submodules and are converted locally into ignored folders:
 
 ```bash
-git submodule update --init --depth 1 BleachVsNaruto/external/TagAssets BleachVsNaruto/external/BleachVsNaruto
+git submodule update --init --depth 1 BleachVsNaruto/external/TagAssets BleachVsNaruto/external/BleachVsNaruto BleachVsNaruto/external/FlashSrc
 ```
 
 The converter needs Java, [FFDec](https://github.com/jindrapetrik/jpexs-decompiler)
@@ -52,6 +52,10 @@ headless) and Python with Pillow:
 
 ```bash
 ~/.local/share/bvn-venv/bin/python tools/convert_maps.py
+```
+
+```bash
+~/.local/share/bvn-venv/bin/python tools/convert_effects.py
 ```
 
 `convert_bvn.py` renders every character and assist (about an hour for the
@@ -77,6 +81,8 @@ Agents can call `start_battle` (`p1`, `p2`, `p1_assist`, `p2_assist`, `map`,
   [BleachVsNaruto_TagAssets](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_TagAssets)
   (no license stated); the game configuration and the kernel this port follows
   come from [BleachVsNaruto](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto)
+  (GPL-3.0); the shared hit and guard effects and their sounds come from
+  [BleachVsNaruto_FlashSrc](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_FlashSrc)
   (GPL-3.0). This port is a private, non-commercial fan project.
 - *Bleach* and *Naruto* characters belong to their rights holders.
 - `fonts/bvn.ttf`: a subset of Noto Sans CJK SC (SIL Open Font License 1.1).

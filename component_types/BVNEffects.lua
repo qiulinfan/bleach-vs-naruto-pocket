@@ -4,18 +4,42 @@
 -- Not attached to any actor.
 local D = setmetatable({}, {__index = function(_, k) return BVNDraw[k] end})
 
--- hitType -> {freeze ms on hit, freeze ms on guard, heavy, color, sound}
+-- EffectModel.as: hit / guard effects by hitType, and named effects.
 local HIT = {
-	[1] = {50, 50, false, {255, 255, 255}, "hit"},
-	[2] = {50, 50, false, {255, 230, 160}, "hit"},
-	[3] = {400, 400, true, {255, 220, 120}, "heavy"},
-	[4] = {50, 50, false, {170, 210, 255}, "hit"},
-	[5] = {400, 400, true, {150, 200, 255}, "heavy"},
-	[6] = {400, 400, true, {255, 255, 255}, "heavy"},
-	[7] = {400, 400, true, {255, 150, 40}, "fire"},
-	[8] = {400, 400, true, {170, 230, 255}, "ice"},
-	[9] = {400, 400, true, {170, 170, 255}, "thunder"},
-	[11] = {400, 400, false, {255, 255, 255}, "heavy"},
+	[11] = {cls = "xg_catch_hit", snd = "snd_hit_cache", freeze = 400},
+	[1] = {cls = "XG_kan2", snd = "snd_kan1", freeze = 50, rand = true},
+	[6] = {cls = "XG_kanx2", snd = "snd_kan2", freeze = 400, rand = true, shine = {0xffffff, 0.2}, shake = 6},
+	[2] = {cls = "XG_qdj", snd = "snd_hit2", freeze = 50, rand = true},
+	[3] = {cls = "XG_qdjx", snd = "snd_hit_heavy", freeze = 400, rand = true, shine = {0xffffff, 0.2}, shake = 6},
+	[4] = {cls = "XG_mfdj", snd = "snd_hit2", freeze = 50, rand = true},
+	[5] = {cls = "XG_mfdjx", snd = "snd_mfdjx", freeze = 400, rand = true, shine = {0xffffff, 0.2}, shake = 6},
+	[7] = {cls = "XG_fire", snd = "snd_hit_fire", freeze = 400, shine = {0xFFFF67, 0.2}, shake = 6},
+	[8] = {cls = "XG_ice", snd = "snd_hit_ice", freeze = 400, shine = {0xA3E5F5, 0.2}, shake = 6},
+	[9] = {cls = "XG_leidian", snd = "snd_hit_dian", freeze = 400, shine = {0x8288D2, 0.2}, shake = 6},
+}
+local GUARD = {
+	[1] = {cls = "XG_fykan", snd = "snd_fykan", freeze = 50, follow = true},
+	[6] = {cls = "XG_fykanx", snd = "snd_fykanx", freeze = 400, follow = true, shine = {0xffffff, 0.1}, shake = 6},
+	[2] = {cls = "XG_fyq", snd = "snd_def", freeze = 50, follow = true},
+	[3] = {cls = "XG_fyqx", snd = "snd_defx", freeze = 400, follow = true, shine = {0xffffff, 0.1}, shake = 6},
+	[4] = {cls = "XG_mffy", snd = "snd_def", freeze = 50, follow = true},
+	[5] = {cls = "XG_mffyx", snd = "snd_defx", freeze = 400, follow = true, shine = {0xffffff, 0.15}, shake = 6},
+	[7] = {cls = "XG_fire_fy", snd = "snd_defx", freeze = 400, follow = true},
+	[8] = {cls = "XG_ice_fy", snd = "snd_defx", freeze = 400, follow = true},
+	[9] = {cls = "XG_dian_fy", snd = "snd_defx", freeze = 400, follow = true},
+}
+local NAMED = {
+	bisha = {cls = "XG_bs", snd = "snd_bs"}, bisha_super = {cls = "XG_cbs", snd = "snd_cbs"},
+	dash = {cls = "XG_rush", snd = "snd_dash_air"}, dash_air = {cls = "XG_rush_air", snd = "snd_dash_air"},
+	jump = {cls = "XG_jump", snd = "snd_jump"}, jump_air = {cls = "XG_jump_air", snd = "snd_jump"},
+	touch_floor = {cls = "XG_luodi", snd = "snd_luodi"}, hit_floor = {cls = "XG_hitfloor", snd = "snd_hitfloor"},
+	hit_floor_low = {cls = "xg_hitfloor_low", snd = "snd_hitfloor_low"},
+	hit_floor_heavy = {cls = "xg_hitfllor_heavy", snd = "snd_hitfloor_heavy", also = "hit_floor_yan"},
+	hit_floor_yan = {cls = "xg_hitfloor_yan"},
+	break_def = {cls = "XG_mfdjx", snd = "snd_mfdjx", freeze = 500, slow = {1.5, 1500}, shake = 6},
+	fz_bleach = {cls = "XG_fz_bleach_mc", snd = "snd_dash"}, fz_naruto = {cls = "XG_fz_naruto_mc", snd = "snd_fz"},
+	replaceSp = {cls = "XG_tishen", snd = "snd_fz"}, explodeSp = {cls = "XG_bsq", snd = "snd_baoqi1"},
+	ghost_step = {cls = "XG_ghost_step", snd = "snd_ghost_step"},
 }
 
 local Fx = {}
@@ -24,11 +48,16 @@ Fx.__index = Fx
 BVNEffects = {
 	New = function(battle)
 		return setmetatable({battle = battle, freeze = 0, slowRate = 1, slowT = 0, shake = 0, shakeT = 0, sustained = 0,
-			flash = nil, parts = {}}, Fx)
+			flash = nil, parts = {}, anims = {}, animTick = 0}, Fx)
 	end,
 }
 
 function Fx:Update()
+	self.animTick = self.animTick + 1
+	if self.animTick >= math.ceil(2 * self.slowRate) then
+		self.animTick = 0
+		self:Animate()
+	end
 	if self.freeze > 0 then self.freeze = self.freeze - 1 end
 	if self.slowT > 0 then
 		self.slowT = self.slowT - 1
@@ -87,82 +116,78 @@ function Fx:Burst(x, y, c, n, speed, size)
 	self.parts[#self.parts + 1] = {ring = true, x = x, y = y, life = 8, max = 8, c = c, size = (size or 3) * 5}
 end
 
+local function sound(name)
+	local clip = name and BVNFxData and BVNFxData.sounds[name]
+	if clip then BVNSound.Play(clip, 110) elseif name then BVNSound.Play(({snd_kan1 = "hit", snd_hit2 = "hit"})[name] or "heavy", 110) end
+end
+
+-- Plays an effect clip at world (x, y); frames advance on animate ticks.
+function Fx:Play(cls, x, y, dir, rot)
+	local data = BVNFxData and BVNFxData.effects[cls]
+	if not data then return false end
+	self.anims[#self.anims + 1] = {data = data, t = 1, x = x, y = y, dir = dir or 1, rot = rot or 0}
+	return true
+end
+
+function Fx:Apply(e, x, y, dir, rot)
+	if e.freeze then self:Freeze(e.freeze) end
+	if e.shine then self:Shine(e.shine[1], e.shine[2]) end
+	if e.shake then self:Shake(e.shake, 0.4) end
+	if e.slow then self:Slow(e.slow[1], e.slow[2]) end
+	if not self:Play(e.cls, x, y, dir, rot) then self:Burst(x, y, {255, 240, 200}, 8, 3) end
+	sound(e.snd)
+	if e.also then self:Named(e.also, x, y, dir) end
+end
+
 function Fx:HitEffect(h, rect, guarded, target)
 	local cx, cy = rect[1] + rect[3] / 2, rect[2] + rect[4] / 2
-	local def = HIT[h.hitType]
-	if not def then
-		if guarded then def = HIT[5] else return end
-	end
+	local t = h.hitType
+	local owner = h.owner
+	local dir = owner and owner.dir or 1
 	if guarded then
-		self:Freeze(def[2])
-		self:Burst(cx, cy, {150, 210, 255}, 6, 2.5, 2)
-		BVNSound.Play("block", 100)
-		if def[3] then self:Shake(6, 0.4) end
+		if target and target.defenseType == 1 then
+			if t == 1 then t = 2 elseif t == 6 then t = 3 end
+		end
+		local e = GUARD[t] or GUARD[5]
+		self:Apply(e, cx, cy, e.follow and dir or 1, 0)
 		return
 	end
-	self:Freeze(def[1])
-	self:Burst(cx, cy, def[4], def[3] and 14 or 8, def[3] and 4 or 3)
-	BVNSound.Play(def[5], 110)
-	if def[3] then
-		self:Shine(0xFFFFFF, 0.2)
-		self:Shake(6, 0.4)
-	end
+	local e = HIT[t]
+	if not e then return end
+	self:Apply(e, cx, cy, dir, e.rand and math.floor(BVNRuntime.RAND() * 360) or 0)
 	if (h.slowDown or 0) > 0 then self:Slow(1.5, h.slowDown * 1000) end
 end
 
 function Fx:SteelEffect(h, rect)
-	self:Freeze(400)
-	self:Burst(rect[1] + rect[3] / 2, rect[2] + rect[4] / 2, {255, 240, 150}, 8, 3)
-	self:Shine(0xFFFFFF, 0.15)
-	BVNSound.Play("block", 110)
+	local t = h.hitType
+	local cls = (t == 1 or t == 6) and "XG_kan2" or ((t == 2 or t == 3) and "XG_qdj" or "XG_mfdj")
+	if t == 0 then return end
+	self:Apply({cls = cls, snd = "snd_hit11", freeze = 400, shine = {0xffffff, 0.2}}, rect[1] + rect[3] / 2, rect[2] + rect[4] / 2, h.owner and h.owner.dir or 1, 0)
 end
 
-function Fx:Effect(id, x, y, dir)
-	if id == "jump" or id == "touch_floor" or id == "jump_air" then
-		for _ = 1, 5 do
-			self.parts[#self.parts + 1] = {x = x + (BVNRuntime.RAND() - 0.5) * 20, y = y - 2, vx = (BVNRuntime.RAND() - 0.5) * 2, vy = -BVNRuntime.RAND() * 0.8,
-				g = 0, life = 14, max = 14, c = {220, 210, 190}, size = 5 + BVNRuntime.RAND() * 4, puff = true}
-		end
-	elseif id == "dash" or id == "dash_air" then
-		for _ = 1, 6 do
-			self.parts[#self.parts + 1] = {x = x - dir * 10, y = y - 4 - BVNRuntime.RAND() * 30, vx = -dir * (1 + BVNRuntime.RAND() * 2), vy = 0,
-				g = 0, life = 12, max = 12, c = {230, 230, 255}, size = 3, puff = true}
-		end
-		BVNSound.Play("whoosh", 80)
-	elseif id == "hit_floor" or id == "hit_floor_heavy" or id == "hit_floor_low" then
-		for _ = 1, id == "hit_floor_heavy" and 10 or 5 do
-			self.parts[#self.parts + 1] = {x = x + (BVNRuntime.RAND() - 0.5) * 40, y = y - 2, vx = (BVNRuntime.RAND() - 0.5) * 3, vy = -BVNRuntime.RAND() * 1.5,
-				g = 0.05, life = 18, max = 18, c = {200, 190, 170}, size = 6 + BVNRuntime.RAND() * 6, puff = true}
-		end
-		BVNSound.Play("land", 100)
-	elseif id == "fz_bleach" or id == "fz_naruto" then
-		for _ = 1, 10 do
-			self.parts[#self.parts + 1] = {x = x + (BVNRuntime.RAND() - 0.5) * 40, y = y - BVNRuntime.RAND() * 70, vx = (BVNRuntime.RAND() - 0.5) * 2,
-				vy = -BVNRuntime.RAND(), g = 0, life = 20, max = 20, c = {240, 240, 240}, size = 10 + BVNRuntime.RAND() * 8, puff = true}
-		end
-		BVNSound.Play("whoosh", 100)
-	end
-end
+function Fx:Effect(id, x, y, dir) self:Named(id, x, y, dir) end
 
 function Fx:Named(id, x, y, dir)
-	if id == "bisha" or id == "bisha_super" then
-		self:Shine(0xFFFFFF, 0.35)
-		self:Burst(x, y, {255, 240, 200}, 16, 4, 3)
-		BVNSound.Play("ult", 110)
-	elseif id == "break_def" then
-		self:Freeze(500)
-		self:Slow(1.5, 1500)
-		self:Shake(6, 0.4)
-		self:Burst(x, y, {255, 120, 80}, 16, 4)
-		BVNSound.Play("heavy", 128)
-	elseif id == "explodeSp" or id == "replaceSp" then
-		self:Shine(0xFFFFFF, 0.3)
-		self:Burst(x, y, {255, 255, 200}, 20, 5, 4)
-		BVNSound.Play("beam", 110)
+	local e = NAMED[id]
+	if e then self:Apply(e, x, y, dir, 0) end
+end
+
+function Fx:Animate()
+	for i = #self.anims, 1, -1 do
+		local a = self.anims[i]
+		a.t = a.t + 1
+		if a.t > #a.data.frames then table.remove(self.anims, i) end
 	end
 end
 
 function Fx:Draw()
+	for _, a in ipairs(self.anims) do
+		local f = a.data.frames[a.t]
+		if f and f.img then
+			-- Rotate and mirror around the effect origin.
+			Image.DrawEx(f.img, a.x / 100, a.y / 100, a.rot * a.dir, a.dir, 1, -f.x / f.w, -f.y / f.h, 255, 255, 255, 255, 72)
+		end
+	end
 	for _, p in ipairs(self.parts) do
 		local a = 255 * p.life / p.max
 		if p.ring then

@@ -120,21 +120,46 @@ class Converter:
         # Animated children advance on their own clock (the idle breathing lives in one),
         # so they are rendered separately and placed at run time.
         self.dynamic = set()
+        # Giant children (full-screen overlays scaled far beyond the stage) would make
+        # FFDec render every frame on a canvas of thousands of pixels; the battle draws
+        # its own dimming instead.
+        self.giant = set()
         for sid in form_ids:
             for dl, _, _ in swf.timeline(sid):
                 for obj in dl.values():
                     nm = obj.get("name") or ""
-                    if nm in SPECIAL_NAMES or "atm" in nm or nm in detached:
+                    if nm in SPECIAL_NAMES or "atm" in nm:
+                        continue
+                    r = swfxml.transform_rect(obj["m"], swf.bounds(obj["cid"]))
+                    if r and (r[2] - r[0] > 1500 or r[3] - r[1] > 1500):
+                        self.giant.add(obj["cid"])
+        for sid in form_ids:
+            for dl, _, _ in swf.timeline(sid):
+                for obj in dl.values():
+                    nm = obj.get("name") or ""
+                    if nm in SPECIAL_NAMES or "atm" in nm or nm in detached or obj["cid"] in self.giant:
                         continue
                     if obj["cid"] in swf.sprites and swf.frame_count(obj["cid"]) >= 2:
                         self.dynamic.add(obj["cid"])
         self.hide_names = set(detached)
         render_ids = sorted(form_ids | self.dynamic | {c for cs in detached.values() for c in cs}, key=int)
+
+        def too_big(sid):
+            r = swf.bounds(sid)
+            return sid not in form_ids and r is not None and (r[2] - r[0] > 2500 or r[3] - r[1] > 2500)
+        render_ids = [sid for sid in render_ids if not too_big(sid)]
         render_root = self.work / "render2"
         meta_path = self.work / "sprites.json"
-        if LUA_ONLY and meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else None
+        if LUA_ONLY and meta and form_ids <= set(meta["sprites"]):
             self.form_ids = form_ids
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["forms"] = [self.form_entry(frame, sid, m) for frame, sid, m in forms]
+            for sid, d in meta["sprites"].items():
+                if sid in swf.sprites:
+                    for f, (dl, _, _) in zip(d["frames"], swf.timeline(sid)):
+                        pts = self.child_points(dl)
+                        if pts:
+                            f.setdefault("hits", {}).update(pts)
             for sid, d in meta["sprites"].items():
                 cls = swf.id_class.get(sid)
                 d["script"] = self.translate(cls) if cls else None
@@ -142,6 +167,8 @@ class Converter:
             self.write_lua(meta)
             self.log("lua rewritten")
             return
+        if meta and not form_ids <= set(meta["sprites"]):
+            shutil.rmtree(render_root, ignore_errors=True)
         if not render_root.exists():
             swf2 = self.strip_children(xml_path, form_ids)
             tmp = self.work / "render_tmp"
@@ -155,7 +182,7 @@ class Converter:
         for sid in render_ids:
             out["sprites"][sid] = self.sprite_data(sid, render_root)
         for frame, sid, m in forms:
-            out["forms"].append({"sprite": sid, "form_frame": frame, "x": round(m[4], 2), "y": round(m[5], 2)})
+            out["forms"].append(self.form_entry(frame, sid, m))
         for name, cids in detached.items():
             out["attackers"][name] = sorted(cids, key=int)
         out["main"] = self.translate(swf.id_class.get(main_id)) if not self.assist else None
@@ -167,6 +194,20 @@ class Converter:
         meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
         self.write_lua(out)
         self.log("forms", len(forms), "sprites", len(render_ids), "images", len(list(self.img_dir.iterdir())))
+
+    def child_points(self, dl):
+        """Registration points of named sprite children: bullet / attacker spawn points and checkers."""
+        out = {}
+        for obj in dl.values():
+            nm = obj.get("name")
+            if nm and nm not in SPECIAL_NAMES and obj["cid"] in self.swf.sprites:
+                m = obj["m"]
+                out["@" + nm] = [round(m[4], 1), round(m[5], 1)]
+        return out
+
+    @staticmethod
+    def form_entry(frame, sid, m):
+        return {"sprite": sid, "form_frame": frame, "x": round(m[4], 2), "y": round(m[5], 2), "sx": round(m[0], 4), "sy": round(m[3], 4)}
 
     def strip_children(self, xml_path, sprite_ids):
         """A copy of the SWF whose form timelines lack detached and animated children."""
@@ -187,7 +228,8 @@ class Converter:
                     if ty in swfxml.PLACE_TAGS:
                         depth = item.get("depth")
                         if item.get("placeFlagHasCharacter") == "true":
-                            if item.get("name") in self.hide_names or item.get("characterId") in self.dynamic:
+                            if item.get("name") in self.hide_names or item.get("characterId") in self.dynamic \
+                                    or item.get("characterId") in self.giant:
                                 hidden_depths.add(depth)
                                 sub.remove(item)
                                 continue
@@ -208,7 +250,7 @@ class Converter:
         stripped = sid in self.form_ids
 
         def hidden(obj):
-            return stripped and (obj.get("name") in self.hide_names or obj["cid"] in self.dynamic)
+            return stripped and (obj.get("name") in self.hide_names or obj["cid"] in self.dynamic or obj["cid"] in self.giant)
 
         # Canvas origin: FFDec renders a sprite on its full bounds.
         rect = None
@@ -217,7 +259,7 @@ class Converter:
                 if not hidden(obj):
                     rect = swfxml.union(rect, swfxml.transform_rect(obj["m"], swf.bounds(obj["cid"])))
         ox, oy = (-rect[0], -rect[1]) if rect else (0, 0)
-        folder = next(render_root.glob("DefineSprite_%s_*" % sid), None) or next(render_root.glob("DefineSprite_%s" % sid))
+        folder = next(render_root.glob("DefineSprite_%s_*" % sid), None) or next(render_root.glob("DefineSprite_%s" % sid), None)
         frames, labels, seen = [], {}, {}
         hit_ranges = None
         for i, (dl, label, sounds) in enumerate(tl):
@@ -225,7 +267,7 @@ class Converter:
             if label:
                 labels.setdefault(label, n)
             f = {}
-            png = folder / ("%d.png" % n)
+            png = folder / ("%d.png" % n) if folder else Path("/nonexistent")
             im = Image.open(png).convert("RGBA") if png.exists() and rect else None
             bb = im.getbbox() if im else None
             if bb:
@@ -260,10 +302,8 @@ class Converter:
                             hits[nm] = r
                 elif nm == "AImain" and hit_ranges is None:
                     hit_ranges = self.hit_ranges(obj, 0, 0)
-                elif obj["cid"] in swf.sprites:
-                    # Named children: bullet spawn points and setHitTarget checkers.
-                    m = obj["m"]
-                    hits.setdefault("@" + nm, [round(m[4], 1), round(m[5], 1)])
+
+            hits.update(self.child_points(dl))
             if hits:
                 f["hits"] = hits
             if kids:

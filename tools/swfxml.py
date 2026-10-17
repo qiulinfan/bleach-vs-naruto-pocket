@@ -99,6 +99,12 @@ class Swf:
                 has_char = t.get("placeFlagHasCharacter") == "true"
                 move = t.get("placeFlagMove") == "true"
                 old = dl.get(depth)
+                # Flash ignores a new placement on an occupied depth (obfuscators add such
+                # decoys, sometimes pointing at the sprite itself).
+                if has_char and not move and old is not None:
+                    continue
+                if has_char and t.get("characterId") == sid:
+                    continue
                 if has_char:
                     obj = dict(old) if (move and old) else {}
                     obj["cid"] = t.get("characterId")

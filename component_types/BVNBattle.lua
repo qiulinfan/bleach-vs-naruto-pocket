@@ -40,7 +40,14 @@ local function loadMap(id)
 	map.floors = {}
 	for _, fl in ipairs(m.floors or {}) do map.floors[#map.floors + 1] = {fl[1], fl[2], fl[3] + off} end
 	for name, l in pairs(m.layers) do
-		map.layers[name] = {img = l.img, x = l.x, y = l.y + (name == "bg" and 0 or off), w = l.w, h = l.h, sx = l.sx, sy = l.sy}
+		local parts
+		if l.parts then
+			parts = {}
+			for _, p in ipairs(l.parts) do
+				parts[#parts + 1] = {img = p.img, x = p.x, y = p.y + off, sx = p.sx, sy = p.sy, w = p.w, h = p.h, clip = p.clip}
+			end
+		end
+		map.layers[name] = {img = l.img, x = l.x, y = l.y + (name == "bg" and 0 or off), w = l.w, h = l.h, sx = l.sx, sy = l.sy, parts = parts}
 	end
 	for _, d in ipairs(BVNConfig.map.map.data) do
 		if d.id == id then map.name, map.bgm = d.name, d.bgm end
@@ -440,9 +447,29 @@ function Battle:Draw()
 		if sp.kind ~= "fighter" and not sp.dead and sp.clip then sp:Draw(sp.kind == "assist" and 30 or 60) end
 	end
 	self.fx:Draw()
-	if L.front then Image.DrawEx(L.front.img, (L.front.x - (c.x - (m.left + m.right) / 2) * 0.1) / 100, L.front.y / 100, 0, L.front.sx, L.front.sy, 0, 0, 255, 255, 255, 255, 90) end
-	if L.front_fix then Image.DrawEx(L.front_fix.img, L.front_fix.x / 100, L.front_fix.y / 100, 0, 1, 1, 0, 0, 255, 255, 255, 255, 90) end
+	self:DrawFront(L.front, -(c.x - (m.left + m.right) / 2) * 0.1)
+	self:DrawFront(L.front_fix, 0)
 	self:DrawHud()
+end
+
+-- Front layers: a movie clip a fighter overlaps is drawn half transparent (MapLayer.renderOptical).
+function Battle:DrawFront(layer, dx)
+	if not layer then return end
+	if not layer.parts then
+		Image.DrawEx(layer.img, (layer.x + dx) / 100, layer.y / 100, 0, layer.sx, layer.sy, 0, 0, 255, 255, 255, 255, 90)
+		return
+	end
+	for _, p in ipairs(layer.parts) do
+		local a = 255
+		if p.clip then
+			local r = {p.x + dx, p.y, p.w * p.sx, p.h * p.sy}
+			for _, f in ipairs(self.fighters) do
+				local body = f:RawBody()
+				if body and BVNBattle.Intersects(r, body) then a = 128 break end
+			end
+		end
+		Image.DrawEx(p.img, (p.x + dx) / 100, p.y / 100, 0, p.sx, p.sy, 0, 0, 255, 255, 255, a, 90)
+	end
 end
 
 function Battle:DrawFighter(f, order)
@@ -453,19 +480,20 @@ function Battle:DrawFighter(f, order)
 	end
 	if f.trail then
 		for i, p in ipairs(f.trail) do
-			BVNClip.Blit(p.img, p.x, p.y, 1, 0, 0, 1, p.ox, p.oy, p.wx, p.wy, p.dir, {alpha = 40 * i, tint = {90, 90, 140}}, order - 5)
+			BVNClip.Blit(p.img, p.x, p.y, p.sx, 0, 0, p.sy, p.ox, p.oy, p.wx, p.wy, p.dir, {alpha = 40 * i, tint = {90, 90, 140}}, order - 5)
 		end
 	end
 	if f.steel then opt.tint = {255, 240, 170} end
 	if not f.allowBeHit and f.state == 15 and self.tick % 4 < 2 then opt.alpha = 200 end
-	local ox, oy = f.formOffset[1], f.formOffset[2]
-	BVNClip.Draw(f.clip, f.x, f.y, f.dir, opt, {1, 0, 0, 1, ox, oy})
+	local fo = f.formOffset
+	local ox, oy = fo[1], fo[2]
+	BVNClip.Draw(f.clip, f.x, f.y, f.dir, opt, {fo[3], 0, 0, fo[4], ox, oy})
 	-- Afterimage bookkeeping.
 	if f.shadow then
 		local fr = f:Frame()
 		if fr and fr.img and self.tick % 3 == 0 then
 			f.trail = f.trail or {}
-			table.insert(f.trail, 1, {img = fr.img, x = fr.x, y = fr.y, ox = ox, oy = oy, wx = f.x, wy = f.y, dir = f.dir})
+			table.insert(f.trail, 1, {img = fr.img, x = fr.x, y = fr.y, ox = ox, oy = oy, sx = fo[3], sy = fo[4], wx = f.x, wy = f.y, dir = f.dir})
 			if #f.trail > 4 then table.remove(f.trail) end
 		end
 	else
