@@ -1,1 +1,7 @@
 .DS_Store
+# Generated from 5DPLAY's assets by tools/convert_bvn.py and tools/convert_maps.py
+.cache/
+images/bvn/
+audio/bvn/
+component_types/generated/
+tools/__pycache__/

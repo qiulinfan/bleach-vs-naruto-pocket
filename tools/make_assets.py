@@ -19,7 +19,7 @@ RATE = 22050
 
 
 def subset_font(source: Path) -> None:
-    text = "".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "component_types").glob("*.lua")))
+    text = "".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "component_types").rglob("*.lua")) if not p.name.startswith("BVNF_"))
     chars = sorted({c for c in text if ord(c) > 0x7F} | {chr(c) for c in range(0x20, 0x7F)})
     subprocess.run(
         ["pyftsubset", str(source), "--text=" + "".join(chars), "--output-file=" + str(ROOT / "fonts" / "bvn.ttf"),

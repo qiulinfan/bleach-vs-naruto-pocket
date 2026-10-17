@@ -1,33 +1,62 @@
 # 死神VS火影 Pocket
 
-A two-player fighting game in the spirit of the classic Flash game *Bleach vs
-Naruto*, written from scratch on Pocket2D. Characters are drawn from rotated
-bars in code; there is no imported character art.
+A port of 5DPLAY Game Studio's *Bleach vs Naruto* (死神vs火影) to Pocket2D.
+The characters, assists, stages, faces and music are the original game's,
+converted from 5DPLAY's public repositories; the fighting rules are a Lua port
+of the original ActionScript kernel.
 
-- Four fighters: 黑崎一护, 朽木露琪亚 (Bleach) and 漩涡鸣人, 宇智波佐助 (Naruto).
-- Light-attack chains, a launcher, air attacks, guarding, dashes, combo scaling.
-- Each fighter has a special (30 energy) and an ultimate (100 energy, with a
-  cut-in): 月牙天冲 / 天锁斩月, 白涟 / 月白 (freezes), 螺旋丸 / 多重影分身,
-  豪火球 / 麒麟.
-- Single player against the CPU, two players on one keyboard, or CPU vs CPU.
-- Best of three rounds, 99-second timer, two stages (空座町 · 夜, 木叶隐村).
+- The original roster and assists, with their alternate forms, from the
+  original select grid.
+- Arcade (eight CPU opponents), versus (two players), single match against
+  the CPU, CPU vs CPU, and training.
+- The original moves: chains, skills, throws, air moves, ultimates with
+  cut-ins, bankai transformations, guard and guard break, quick get-up,
+  burst / substitution, assists, bullets and summoned attackers.
+- Best of three rounds, 60-second timer, the CPU's original difficulty tables.
 
 ## Controls
 
 | | Player 1 | Player 2 |
 | --- | --- | --- |
 | Move | A / D | ← / → |
-| Jump | W | ↑ |
-| Guard (hold) | S | ↓ |
-| Light attack | J | Keypad 1 or `,` |
-| Heavy attack | K | Keypad 2 or `.` |
-| Special | L | Keypad 3 or `/` |
-| Ultimate | U | Keypad 4 or `;` |
-| Dash | I | Keypad 5 or `'` |
+| Up / down modifier, guard (down) | W / S | ↑ / ↓ |
+| Attack | J | Keypad 1 or `,` |
+| Jump | K | Keypad 2 or `.` |
+| Dash | L | Keypad 3 or `/` |
+| Skill | U | Keypad 4 or `;` |
+| Ultimate | I | Keypad 5 or `'` |
+| Assist / burst | O | Keypad 6 or `]` |
 
-Menus: W/S and A/D to choose, J or Enter to confirm, K or Backspace to go back.
-Light attacks chain up to three hits; a connecting light or heavy attack can be
-cancelled into the special or the ultimate.
+As in the original: S+J and W+J are skills, U / S+U / W+U are 招, I / W+I /
+S+I are ultimates (100 / 100 / 300 energy), J+K transforms when the character
+can, direction + J / U throws at close range.
+Menus: W/A/S/D to choose, J or Enter to confirm, K or Backspace to go back,
+I to switch a character's alternate form on the select screen.
+
+## Setting up the assets
+
+The assets are not stored in this repository. They come from two Git
+submodules and are converted locally into ignored folders:
+
+```bash
+git submodule update --init --depth 1 BleachVsNaruto/external/TagAssets BleachVsNaruto/external/BleachVsNaruto
+```
+
+The converter needs Java, [FFDec](https://github.com/jindrapetrik/jpexs-decompiler)
+(installed as `~/.local/share/ffdec/ffdec-run`, a script that runs `ffdec.jar`
+headless) and Python with Pillow:
+
+```bash
+~/.local/share/bvn-venv/bin/python tools/convert_bvn.py --jobs 5
+```
+
+```bash
+~/.local/share/bvn-venv/bin/python tools/convert_maps.py
+```
+
+`convert_bvn.py` renders every character and assist (about an hour for the
+whole roster); `--only ichigo naruto` converts a few, `--missing` only the
+unconverted ones and `--lua-only` re-translates scripts from cached frames.
 
 ## Running
 
@@ -37,21 +66,17 @@ From the engine checkout (`~/Desktop/pocket2d`):
 ./build/sdl3-release/game --project ../pocket2d-games/BleachVsNaruto
 ```
 
-Regression test (a CPU-vs-CPU match through the menus):
+Agents can call `start_battle` (`p1`, `p2`, `p1_assist`, `p2_assist`, `map`,
+`mode`: `watch` / `cpu` / `pvp` / `training`, `level` 1-6, `skip_intro`),
+`set_qi` and `set_hp` on the `Game` actor.
 
-```bash
-python3 tools/pocket test ../pocket2d-games/BleachVsNaruto
-```
+## Credits and licenses
 
-Agents can call `start_match` (`mode`: `cpu`/`pvp`/`watch`, `p1`/`p2`:
-`ichigo`/`rukia`/`naruto`/`sasuke`, `stage`, `skip_intro`), `set_energy` and
-`set_hp` on the `Game` actor.
-
-## Assets
-
+- Characters, stages, faces, sounds and music: *Bleach vs Naruto* by 剑jian and
+  5DPLAY Game Studio, from
+  [BleachVsNaruto_TagAssets](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_TagAssets)
+  (no license stated); the game configuration and the kernel this port follows
+  come from [BleachVsNaruto](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto)
+  (GPL-3.0). This port is a private, non-commercial fan project.
+- *Bleach* and *Naruto* characters belong to their rights holders.
 - `fonts/bvn.ttf`: a subset of Noto Sans CJK SC (SIL Open Font License 1.1).
-  After adding new Chinese text, rebuild it with
-  `tools/make_assets.py --font NotoSansCJKsc-Regular.otf`.
-- `audio/*.wav`: synthesized by `tools/make_assets.py`.
-- Bleach and Naruto characters belong to their rights holders; this is a
-  private fan project.

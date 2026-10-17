@@ -1,12 +1,55 @@
 # BleachVsNaruto guidance
 
-- One component, `BVNGame`, owns the whole game (title, select, fight, result).
-  `BVNData` holds characters, poses and move timing; `BVNRig` draws fighters
-  from pose angles; `BVNFx` draws projectiles and particles; `BVNStage` draws
-  backgrounds; `BVNDraw` wraps drawing in screen pixels (camera fixed at
-  (6.4, 3.6), zoom 1, so world units are pixels / 100).
-- Randomness comes from `rand(g)` (seeded LCG) so replays stay deterministic.
-- World draws (`D.Rect`, rigs) always sit under UI draws (`D.UI`, text); keep
-  anything that must cover a rig in world space with a lower sorting order.
-- New Chinese text needs the font subset rebuilt (`tools/make_assets.py --font`).
-- Test with `tools/pocket check` and `tools/pocket test` from the engine root.
+A port of 5DPLAY's *Bleach vs Naruto* (Flash, AS3). Original assets come from
+the submodules under `external/`; everything converted from them is ignored
+(`images/bvn/`, `audio/bvn/`, `component_types/generated/`, `.cache/`).
+
+## Pipeline
+
+- `tools/convert_bvn.py`: per character/assist SWF, FFDec `swf2xml` + script
+  export (deobfuscated), then renders the action sprites with FFDec. Animated
+  children (the idle breathing lives in one), bullets and attackers (children
+  named in `fire` / `addAttacker`) are removed from the form timelines and
+  rendered as their own sprites. Frames are cropped and de-duplicated; per
+  frame it records the image offset, `bdmn` body, `*atm` hit boxes, named child
+  positions (`@name`), animated children with their placement serial and
+  matrix, and timeline sounds. Scripts are translated by `tools/as3lua.py`.
+  Output: `component_types/generated/BVNF_<id>.lua` (assists: `BVNF_fz_<id>`).
+- `tools/convert_maps.py`: map layers (`bg`, `map`, `front`, `front_fix`, logos
+  stripped), bounds lines, floors and spawn points into `BVNMaps`; faces, BGM
+  and the 5DPLAY config (`fighter.json`, `assist.json`, `map.json`,
+  `select.xml`) into `BVNConfig`.
+- `tools/swfxml.py` reads FFDec XML timelines; `tools/as3lua.py` turns AS3
+  classes into Lua tables (`fields`, `methods`, `frames`). Helpers it calls
+  live in `BVNRuntime` (AS3 truthiness, arrays, deterministic random).
+
+## Runtime
+
+- Engine rule: each component file exports exactly one global named like the
+  file, and files load in an unspecified order, so never capture another
+  module at file scope (use lazy lookups such as the `D` proxy for BVNDraw).
+- `BVNClip`: a playing sprite (Flash frame-entry scripts, children keep their
+  playhead while their placement serial persists, `Draw` composes matrices).
+- `BVNFighter`: FighterMain / FighterMC / FighterMcCtrler and the floor, air,
+  hurt and defense handlers. `BVNCtrl` holds the `$mc_ctrler`,
+  `$effect_ctrler` and `$fighter_ctrler` objects the scripts call.
+- `BVNBullet`: bullets, attackers, assists. `BVNInput`: buffered predicates.
+  `BVNAI`: the original rate tables. `BVNBattle`: tick order (60 Hz logic,
+  timelines every 2nd tick), hits, push, camera, rounds, HUD. `BVNEffects`:
+  hit-stop, slow motion, shake, flashes and stand-in sparks. `BVNMenu`,
+  `BVNGame`: menus, arcade, results.
+- Rules and constants follow the original kernel (`external/BleachVsNaruto`,
+  `CORE_KernelLogic/src/net/play5d/game/bvn/`). Keep its quirks unless the
+  owner asks otherwise.
+
+## Open work
+
+- The shared hit/guard effect clips and their sounds (XG_kan2, snd_kan1, ...)
+  live in 5DPLAY's `BleachVsNaruto_FlashSrc` effect XFL; they are approximated
+  by `BVNEffects`. Converting them needs an XFL reader.
+- Ghost step (瞬步 variants with L+direction) and team mode are not ported.
+
+## Testing
+
+`tools/pocket check` and an agent run of `start_battle` in `watch` mode from
+the engine root. Run output stays under the engine's ignored `build/`.
