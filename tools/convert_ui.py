@@ -22,6 +22,8 @@ UI = ROOT / "external" / "FlashSrc" / "SRC_XFL" / "ui"
 EXPORTS = {
     "fight": {"$fight$MC_hpBar": "fadin_fin", "$fight$MC_qiBar": "fadin_fin", "$fight$MC_hits": 0, "$fight$MC_timeNumber": "all",
               "$fight$MC_hitsNumer": "all", "$fight$MC_win": 0, "$fight$MC_fightUI": 0},
+    "select": {"$select$MC_stgSelect": 0},
+    "title": {"$title$MC_stgTitle": -1},
 }
 # Whole symbols exported as flattened animations with their frame labels.
 ANIMS = {"fight": ["game_start_mc"]}
@@ -143,7 +145,7 @@ def main():
             else:
                 if isinstance(frame, str):
                     frame = next((idx for layer in ex.lib.layers_all(sym) for idx, _, fr in layer if fr.get("name") == frame), 0)
-                data[cls] = {"parts": ex.tree(sym, frame)}
+                data[cls] = {"parts": ex.tree(sym, n - 1 if frame == -1 else frame)}
             print("[ui] %s %s: %d frames" % (doc, cls, n), flush=True)
     anims = {}
     for doc, syms in ANIMS.items():

@@ -159,7 +159,11 @@ BVNMenu = {
 					local id = slot.form > 0 and cell.more[slot.form] or cell.id
 					local isAssist = slot.grid == BVNConfig.select.assists
 					id = BVNMenu.Resolve(id, isAssist)
-					if id and BVNMenu.Available(id, isAssist) then
+					local dup = false
+					if not isAssist and m.picks[s] then
+						for _, t in ipairs(m.picks[s].team) do if t == id then dup = true end end
+					end
+					if id and not dup and BVNMenu.Available(id, isAssist) then
 						BVNSound.Play("ui_confirm")
 						m.picks[s] = m.picks[s] or {team = {}}
 						if not isAssist then
@@ -237,8 +241,17 @@ BVNMenu = {
 
 	DrawTitle = function(g)
 		local m = g.menu
-		img("bvn/map/xianshi/bg.png", 0, 0, 1, 255, 0)
-		img("bvn/ui/title.png", 400 - 240, 70, 0.75, 255, 2)
+		local title = BVNUIData and BVNUIData["$title$MC_stgTitle"]
+		if title and title.parts[1] and title.parts[1].img then
+			-- The original title art is wider than the stage; pan slowly across it.
+			local p = title.parts[1]
+			local w = Image.GetSize(p.img).x * SCALE
+			local k = 0.5 - 0.5 * math.cos(m.t * 0.004)
+			Image.DrawUIScaled(p.img, -(w - 1280) * k, 0, SCALE, SCALE, 255, 255, 255, 255, 0)
+		else
+			img("bvn/map/xianshi/bg.png", 0, 0, 1, 255, 0)
+		end
+		img("bvn/ui/title.png", 400 - 240, 40, 0.75, 255, 2)
 		if m.phase == "title" then
 			if (m.t // 30) % 2 == 0 then text("按 J 或 Enter 开始", 400, 470, 26, WHITE) end
 		else
@@ -255,7 +268,12 @@ BVNMenu = {
 
 	DrawSelect = function(g)
 		local m = g.menu
-		img("bvn/map/neixin/bg.png", 0, 0, 1, 120, 0)
+		local sel = BVNUIData and BVNUIData["$select$MC_stgSelect"]
+		if sel then
+			Image.DrawUIScaled(sel.parts[1].parts[1].img, 0, 0, 1280 / 800, 1280 / 800, 255, 255, 255, 255, 0)
+		else
+			img("bvn/map/neixin/bg.png", 0, 0, 1, 120, 0)
+		end
 		local assists = m.slots[1].grid == BVNConfig.select.assists or m.slots[2].grid == BVNConfig.select.assists
 		local grid = m.slots[1].done and m.slots[2].grid or m.slots[1].grid
 		text(grid == BVNConfig.select.assists and "选择援助" or "选择角色", 400, 18, 30, WHITE)
@@ -276,10 +294,10 @@ BVNMenu = {
 			if cell and cell._x and slot.grid == grid then
 				local c = s == 1 and {255, 60, 50} or {60, 130, 255}
 				local a = slot.done and 255 or 170 + 85 * math.sin(m.t * 0.25)
-				rect(cell._x - 2, cell._y - 2, 54, 3, c, a, 3)
-				rect(cell._x - 2, cell._y + 47, 54, 3, c, a, 3)
-				rect(cell._x - 2, cell._y - 2, 3, 52, c, a, 3)
-				rect(cell._x + 49, cell._y - 2, 3, 52, c, a, 3)
+				rect(cell._x - 3, cell._y - 3, 56, 4, c, a, 3)
+				rect(cell._x - 3, cell._y + 47, 56, 4, c, a, 3)
+				rect(cell._x - 3, cell._y - 3, 4, 54, c, a, 3)
+				rect(cell._x + 49, cell._y - 3, 4, 54, c, a, 3)
 			end
 			-- Big face and name of the hovered or picked fighter.
 			local pick = m.picks[s]
