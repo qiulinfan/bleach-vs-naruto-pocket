@@ -309,20 +309,3 @@ def composite(items):
     return canvas, x0, y0
 
 
-def to_additive(im):
-    px = im.load()
-    w, h = im.size
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if a == 0:
-                continue
-            r, g, b = r * a // 255, g * a // 255, b * a // 255
-            A = max(r, g, b)
-            if A == 0:
-                px[x, y] = (0, 0, 0, 0)
-            else:
-                px[x, y] = (r * 255 // A, g * 255 // A, b * 255 // A, A)
-    return im
-
-

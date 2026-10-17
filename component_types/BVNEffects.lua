@@ -185,7 +185,8 @@ function Fx:Draw()
 		local f = a.data.frames[a.t]
 		if f and f.img then
 			-- Rotate and mirror around the effect origin.
-			Image.DrawEx(f.img, a.x / 100, a.y / 100, a.rot * a.dir, a.dir, 1, -f.x / f.w, -f.y / f.h, 255, 255, 255, 255, 72)
+			Image.DrawEx(f.img, a.x / 100, a.y / 100, a.rot * a.dir, a.dir, 1, -f.x / f.w, -f.y / f.h, 255, 255, 255, 255, 72,
+				nil, a.data.add and "add" or nil)
 		end
 	end
 	for _, p in ipairs(self.parts) do

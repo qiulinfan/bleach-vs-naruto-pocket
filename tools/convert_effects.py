@@ -6,8 +6,8 @@ Writes (ignored by Git):
   images/bvn/fx/<class>_<n>.png
   audio/bvn/fx/<class>.<ext>
   component_types/generated/BVNFxData.lua   {effects = {[class] = {frames, add}}, sounds = {[class] = clip}}
-Effects whose EffectVO uses an additive blend are stored with alpha taken from
-brightness, which approximates additive blending under normal alpha blending.
+Effects whose EffectVO uses an additive blend (Flash BlendMode.ADD) are marked
+add; component_types/BVNEffects.lua draws them with the engine's "add" blend.
 """
 import hashlib
 import math
@@ -21,7 +21,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from convert_bvn import ROOT, lua_val  # noqa: E402
-from xfl import Library, composite, to_additive, write_dat_sound  # noqa: E402
+from xfl import Library, composite, write_dat_sound  # noqa: E402
 
 XFL = ROOT / "external" / "FlashSrc" / "SRC_XFL" / "effect"
 ADDITIVE = {"XG_bs", "XG_cbs", "XG_jump_air", "xg_hitfloor_yan", "XG_mfdjx", "XG_ghost_step", "xg_mc_change", "XG_kan2",
@@ -49,8 +49,6 @@ def main():
                 continue
             bb = im.getbbox()
             im = im.crop(bb)
-            if add:
-                im = to_additive(im)
             key = hashlib.sha1(im.tobytes() + bytes(str(im.size), "ascii")).hexdigest()
             if key not in seen:
                 name = "%s_%d.png" % (re.sub(r"\W", "_", cls), len(seen) + 1)
