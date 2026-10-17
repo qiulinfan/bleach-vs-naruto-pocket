@@ -590,6 +590,8 @@ class Emitter:
             return out
         if k == "expr":
             e = s[1]
+            while e[0] == "paren":
+                e = e[1]
             if e[0] == "assign":
                 return self.assign_stmt(e, ind)
             if e[0] == "seq":

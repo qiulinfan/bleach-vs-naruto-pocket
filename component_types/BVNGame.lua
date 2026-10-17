@@ -109,7 +109,7 @@ BVNGame = {
 		local assist = st and st.assistant
 		if not (assist and BVNMenu.Available(assist, true)) then assist = BVNMenu.Resolve("random", true) end
 		local props = st and st.properties or {}
-		self.level = 3
+		self.level = self.level or 3
 		self.mode = "arcade"
 		self:StartBattle({a.pick, {team = team, fighter = team[1], assist = assist, hpRate = props.hp_rate, attackRate = props.attack_rate}},
 			st and BVNMaps[st.map] and st.map or "xianshi")
