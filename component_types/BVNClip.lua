@@ -91,6 +91,11 @@ BVNClip = {
 	Enter = function(clip, n)
 		clip.frame = n
 		BVNClip.SyncKids(clip)
+		-- Timeline sounds (StartSound tags) play when their frame is entered.
+		local f = clip.data.frames[n]
+		if f and f.snd and not clip.silent then
+			for _, snd in ipairs(f.snd) do BVNSound.Play(snd, 110) end
+		end
 		local script = clip.data.script
 		local name = script and script.frames[n]
 		if name then BVNClip.Call(clip, name) end
@@ -176,6 +181,9 @@ BVNClip = {
 		local wy = y + py * s
 		local r, g, bl = 255, 255, 255
 		if opt.tint then r, g, bl = opt.tint[1], opt.tint[2], opt.tint[3] end
-		Image.DrawEx(img, wx / 100, wy / 100, rot * dir, sx * s * dir, sy * s, 0, 0, r, g, bl, opt.alpha or 255, order)
+		-- The engine flips a negatively scaled image in place, so a mirror about the
+		-- image's top-left corner needs the pivot on the flipped side.
+		local fx, fy = sx * s * dir, sy * s
+		Image.DrawEx(img, wx / 100, wy / 100, rot * dir, fx, fy, fx < 0 and 1 or 0, fy < 0 and 1 or 0, r, g, bl, opt.alpha or 255, order)
 	end,
 }

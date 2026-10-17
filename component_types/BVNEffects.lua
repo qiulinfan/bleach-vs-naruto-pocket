@@ -185,7 +185,9 @@ function Fx:Draw()
 		local f = a.data.frames[a.t]
 		if f and f.img then
 			-- Rotate and mirror around the effect origin.
-			Image.DrawEx(f.img, a.x / 100, a.y / 100, a.rot * a.dir, a.dir, 1, -f.x / f.w, -f.y / f.h, 255, 255, 255, 255, 72,
+			-- A mirrored image is flipped in place: put the pivot at the origin's mirror.
+			local px = a.dir < 0 and (1 + f.x / f.w) or (-f.x / f.w)
+			Image.DrawEx(f.img, a.x / 100, a.y / 100, a.rot * a.dir, a.dir, 1, px, -f.y / f.h, 255, 255, 255, 255, 72,
 				nil, a.data.add and "add" or nil)
 		end
 	end

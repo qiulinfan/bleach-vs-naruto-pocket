@@ -210,6 +210,9 @@ BVNGame = {
 				bt.phase, bt.phaseT, bt.actionEnable = "fight", 0, true
 			end
 			return {phase = self.battle.phase}
+		elseif name == "debug_boxes" and self.battle then
+			self.battle.debugBoxes = args.on ~= false
+			return {on = self.battle.debugBoxes}
 		elseif name == "set_qi" and self.battle then
 			local f = self.battle.fighters[args.side or 1]
 			f.qi = args.qi or 300

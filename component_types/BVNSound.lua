@@ -6,7 +6,7 @@ BVNSound = {
 	Play = function(name, volume)
 		if not name then return end
 		name = BVNSound.ALIASES[name] or name
-		BVNSound.channel = BVNSound.channel % 12 + 1
+		BVNSound.channel = BVNSound.channel % 48 + 1
 		if Audio.HasClip(name) then
 			Audio.SetVolume(BVNSound.channel, volume or 96)
 			Audio.Play(BVNSound.channel, name, false)

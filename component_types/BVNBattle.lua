@@ -514,6 +514,16 @@ function Battle:Draw()
 		if sp.kind ~= "fighter" and not sp.dead and sp.clip then sp:Draw(sp.kind == "assist" and 30 or 60) end
 	end
 	self.fx:Draw()
+	if self.debugBoxes then
+		for _, sp in ipairs(self.sprites) do
+			if not sp.dead then
+				local r = sp.RawBody and sp:RawBody()
+				if r then D.Rect(r[1], r[2], r[3], r[4], {0, 255, 0}, 90, 95) end
+				for _, h in ipairs(sp:CurrentHits()) do D.Rect(h[2][1], h[2][2], h[2][3], h[2][4], {255, 0, 0}, 90, 96) end
+				D.Rect(sp.x - 1, sp.y - 20, 2, 20, {255, 255, 0}, 255, 97)
+			end
+		end
+	end
 	self:DrawFront(L.front, -(c.x - (m.left + m.right) / 2) * 0.1)
 	self:DrawFront(L.front_fix, 0)
 	self:DrawHud()
