@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "name": "watch_match",
+  "description": "From the title menu, start a CPU vs CPU match (Ichigo + Kon against Naruto + Gaara on the default stage) and play it to a winner.",
+  "seed": 1,
+  "max_frames": 20000,
+  "frames_per_step": 4,
+  "controls": {
+    "actions": [
+      "confirm",
+      "p1_down",
+      "p1_attack"
+    ]
+  },
+  "success": [
+    {
+      "actor": "Game",
+      "component": "game",
+      "property": "match_winner",
+      "op": ">=",
+      "value": 1
+    }
+  ],
+  "script": [
+    {
+      "frames": 30
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "confirm": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "confirm": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 10
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 19000
+    }
+  ]
+}

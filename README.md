@@ -76,7 +76,14 @@ From the engine checkout (`~/Desktop/pocket2d`):
 ./build/sdl3-release/game --project ../pocket2d-games/BleachVsNaruto
 ```
 
-Agents can call `start_battle` (`p1`, `p2`, `p1_assist`, `p2_assist`, `map`,
+Regression test (a CPU vs CPU match started from the title menu; needs the
+converted assets):
+
+```bash
+python3 tools/pocket test ../pocket2d-games/BleachVsNaruto
+```
+
+Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_assist`, `p2_assist`, `map`,
 `mode`: `watch` / `cpu` / `pvp` / `training`, `level` 1-6, `skip_intro`),
 `set_qi` and `set_hp` on the `Game` actor.
 
