@@ -472,6 +472,7 @@ function Fighter:RenderAnimate()
 		if self.beHitGap <= 0 then self.allowBeHit = true end
 	end
 	self:RenderMcAnimate()
+	if self.ghost then self:RenderGhost() end
 	if self.isHurting then self:RenderHurtAnimate() end
 	if self.isDefenseHiting then self:RenderDefenseHiting() end
 	if self.isJumping and not self.doingAction then self:RenderJumpAnimate() end
@@ -507,6 +508,10 @@ function Fighter:RenderFloorAction()
 	if ok("zhao2", "zhao2") then self:DoSkill(a.zhao2) return end
 	if ok("attack", "attack") then self:DoAttack(a.attack) return end
 	if ok("zhao1", "zhao1") then self:DoSkill(a.zhao1) return end
+	if self:AllowGhost() then
+		if k:ghostStep() and self:StartGhost(0) then return end
+		if k:ghostJump() and self:StartGhost(1) then return end
+	end
 	if ok("defense", "defense") then self:DoDefense() return end
 	if self.isDefensing then
 		self:RenderDefense(true)
@@ -770,6 +775,73 @@ function Fighter:RenderAirAction()
 	if a.airMove then
 		if k:moveLEFT() then self:Move(-self.speed, 0) elseif k:moveRIGHT() then self:Move(self.speed, 0) end
 	end
+	if self:AllowGhost() then
+		if k:ghostJump() and self:StartGhost(1) then return end
+		if k:ghostStep() and self:StartGhost(2) then return end
+	end
+end
+
+-- Ghost step (FighterMcGhostHandler): L with down (step / drop) or up (jump).
+function Fighter:AllowGhost()
+	local s = self.state
+	return not self.ghost and s ~= S.BISHA and s ~= S.BISHA_SUPER and s ~= S.WANKAI and self.alive
+end
+
+function Fighter:StartGhost(kind)
+	if self.qi < 60 or not self:HasEnergy(80, true) then return false end
+	if kind == 1 and self.act.jumpTimes <= 0 then return false end
+	self:UseQi(60)
+	self:UseEnergy(80)
+	self:FaceTarget()
+	self.ghost = {frames = 12, kind = kind}
+	self.allowBeHit, self.isCross = false, true
+	self.shadow = {0, 0, 255}
+	self:ClearAction()
+	self.doingAction = nil
+	self.isMoving, self.isDefensing, self.isDefense, self.isDashing = false, false, false, false
+	self.state = S.NORMAL
+	if kind == 0 then
+		self:SetVelocity(8 * self.dir, 0)
+		self:GoFrame("走", true)
+	elseif kind == 1 then
+		self:SetVelocity(0, -12)
+		self:SetDamping(0, 0.1)
+		self:GoFrame("跳", false)
+		self.act.jumpTimes = self.act.jumpTimes - 1
+	else
+		self:SetVelocity(0, 15)
+		self:GoFrame("落", false)
+	end
+	self.battle.fx:Named("ghost_step", self.x, self.y - 40, self.dir)
+	self.battle.ghostOwner = self
+	return true
+end
+
+function Fighter:RenderGhost()
+	local g = self.ghost
+	g.frames = g.frames - 1
+	if g.frames < 0 then
+		if g.kind == 1 then
+			local vy = self.vy
+			self.isJumping = false
+			self:EndGhost()
+			self:SetVelocity(0, vy)
+			self:SetDamping(0, -vy / 10)
+			self.act.airMove = true
+			return
+		end
+		self:EndGhost()
+		return
+	end
+	if g.kind == 2 and self.touchBottom then self:EndGhost() end
+end
+
+function Fighter:EndGhost()
+	self.ghost = nil
+	self.shadow = nil
+	if self.battle.ghostOwner == self then self.battle.ghostOwner = nil end
+	self:FaceTarget()
+	self:Idle()
 end
 
 function Fighter:DoAirAttack(label)

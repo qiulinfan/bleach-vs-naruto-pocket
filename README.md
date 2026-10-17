@@ -35,7 +35,7 @@ I to switch a character's alternate form on the select screen.
 
 ## Setting up the assets
 
-The assets are not stored in this repository. They come from two Git
+The assets are not stored in this repository. They come from three Git
 submodules and are converted locally into ignored folders:
 
 ```bash
@@ -56,6 +56,10 @@ headless) and Python with Pillow:
 
 ```bash
 ~/.local/share/bvn-venv/bin/python tools/convert_effects.py
+```
+
+```bash
+~/.local/share/bvn-venv/bin/python tools/convert_ui.py
 ```
 
 `convert_bvn.py` renders every character and assist (about an hour for the
@@ -81,7 +85,7 @@ Agents can call `start_battle` (`p1`, `p2`, `p1_assist`, `p2_assist`, `map`,
   [BleachVsNaruto_TagAssets](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_TagAssets)
   (no license stated); the game configuration and the kernel this port follows
   come from [BleachVsNaruto](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto)
-  (GPL-3.0); the shared hit and guard effects and their sounds come from
+  (GPL-3.0); the shared effects, their sounds and the fight HUD come from
   [BleachVsNaruto_FlashSrc](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_FlashSrc)
   (GPL-3.0). This port is a private, non-commercial fan project.
 - *Bleach* and *Naruto* characters belong to their rights holders.

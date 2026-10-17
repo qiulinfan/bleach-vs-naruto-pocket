@@ -141,7 +141,17 @@ BVNGame = {
 		if not b then return {phase = self.menu and self.menu.phase} end
 		return {phase = b.phase, mode = b.mode, map = b.map.id, round = b.round, wins = b.wins, time = b.time,
 			p1 = fighter(b.fighters[1]), p2 = fighter(b.fighters[2]), sprites = #b.sprites, match_winner = b.matchWinner,
-			bisha = b.bisha and {t = b.bisha.t, img = b.bisha.img} or nil, freeze = b.fx.freeze, pause = b.pause}
+			bisha = b.bisha and {t = b.bisha.t, img = b.bisha.img, kind = b.bisha.f.kind} or nil, freeze = b.fx.freeze, pause = b.pause,
+			others = (function()
+				local out = {}
+				for _, sp in ipairs(b.sprites) do
+					if sp.kind ~= "fighter" and sp.clip then
+						out[#out + 1] = {kind = sp.kind, frame = sp.clip.frame, total = #sp.clip.data.frames, playing = sp.clip.playing,
+							label = BVNClip.Label(sp.clip), x = sp.x, y = sp.y}
+					end
+				end
+				return out
+			end)()}
 	end,
 
 	OnAgentCommand = function(self, name, args)

@@ -174,7 +174,10 @@ class Converter:
             tmp = self.work / "render_tmp"
             shutil.rmtree(tmp, ignore_errors=True)
             ffdec("-selectid", ",".join(render_ids), "-format", "sprite:png", "-export", "sprite", str(tmp), str(swf2))
+            (tmp / "STRIP_RULE").write_text("2")
             tmp.rename(render_root)
+        # Renders made before data-only children were stripped keep the old canvas rule.
+        self.strip_v = 2 if (render_root / "STRIP_RULE").exists() else 1
         shutil.rmtree(self.img_dir, ignore_errors=True)
         self.img_dir.mkdir(parents=True)
         self.form_ids = form_ids
@@ -228,8 +231,11 @@ class Converter:
                     if ty in swfxml.PLACE_TAGS:
                         depth = item.get("depth")
                         if item.get("placeFlagHasCharacter") == "true":
-                            if item.get("name") in self.hide_names or item.get("characterId") in self.dynamic \
-                                    or item.get("characterId") in self.giant:
+                            nm = item.get("name") or ""
+                            # Data-only children (AI ranges, body and hit boxes) are invisible but
+                            # would stretch the render canvas.
+                            if nm in self.hide_names or nm in SPECIAL_NAMES or "atm" in nm \
+                                    or item.get("characterId") in self.dynamic or item.get("characterId") in self.giant:
                                 hidden_depths.add(depth)
                                 sub.remove(item)
                                 continue
@@ -250,7 +256,9 @@ class Converter:
         stripped = sid in self.form_ids
 
         def hidden(obj):
-            return stripped and (obj.get("name") in self.hide_names or obj["cid"] in self.dynamic or obj["cid"] in self.giant)
+            nm = obj.get("name") or ""
+            data_only = self.strip_v >= 2 and (nm in SPECIAL_NAMES or "atm" in nm)
+            return stripped and (nm in self.hide_names or data_only or obj["cid"] in self.dynamic or obj["cid"] in self.giant)
 
         # Canvas origin: FFDec renders a sprite on its full bounds.
         rect = None

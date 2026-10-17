@@ -75,3 +75,5 @@ function Input:waiKai()
 	return self.held.attack and self.held.jump
 end
 function Input:special() return self.special_held end
+function Input:ghostStep() return pressed(self, "dash") and self.down end
+function Input:ghostJump() return pressed(self, "dash") and self.up end

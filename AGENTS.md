@@ -24,6 +24,12 @@ the submodules under `external/`; everything converted from them is ignored
   XFL timeline compositor (bitmap and symbol instances, decompiled bitmap-fill
   shapes, classic tweens, alpha) plus decoders for `bin/*.dat` bitmaps
   (0x0305 ARGB, 0x0303 palette) and raw PCM sounds. Output: `BVNFxData`.
+- `tools/convert_ui.py`: interface symbols (the fight HUD) from the FlashSrc
+  ui XFL as part trees: static images plus the named children the original
+  FightUI code drives, exported at their settled `fadin_fin` frame. `BVNHud`
+  draws them with overrides (bar scales, digits, faces). `tools/xfl.py` is the
+  shared XFL reader and compositor; XFL bitmap-fill matrices scale by 20
+  (twips) but translate in pixels.
 - `tools/swfxml.py` reads FFDec XML timelines (Flash ignores a non-move
   placement on an occupied depth; obfuscated SWFs rely on that); `tools/as3lua.py` turns AS3
   classes into Lua tables (`fields`, `methods`, `frames`). Helpers it calls

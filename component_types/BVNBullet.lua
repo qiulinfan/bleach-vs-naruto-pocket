@@ -14,7 +14,15 @@ local function ctrlMT(methods)
 	return {__index = function(t, k)
 		local a = rawget(t, "a")
 		local fighter = a.owner.fCtrl and a.owner or a.owner.owner
-		if k == "effect" then return fighter.effCtrl end
+		if k == "effect" then
+			-- Bound to the sprite itself: a bisha pause keeps that sprite's timeline running.
+			local e = rawget(a, "effCtrl")
+			if not e then
+				e = setmetatable({f = a}, {__index = BVNCtrl.Eff})
+				rawset(a, "effCtrl", e)
+			end
+			return e
+		end
 		if k == "owner_fighter_ctrler" then return fighter.fCtrl end
 		if k == "owner_mc_ctrler" then return fighter.mcCtrl end
 		if k == "camera" then return nil end

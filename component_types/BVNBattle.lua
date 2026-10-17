@@ -187,7 +187,7 @@ function Battle:FindAttacker(name, team)
 end
 
 function Battle:Bisha(f, super, face, wankai)
-	local img = face and f.faces[face] and f.char.faces[f.faces[face]]
+	local img = face and f.faces and f.faces[face] and f.char.faces[f.faces[face]]
 	self.bisha = {f = f, super = super, img = img, t = 0, wankai = wankai}
 	self.fx:Named(super and "bisha_super" or "bisha", f.x, f.y - 50, f.dir)
 end
@@ -259,8 +259,11 @@ function Battle:Update()
 			end
 		end
 	end
+	-- Ghost step pauses everything but its fighter.
+	local only = self.ghostOwner
+	if only and not only.ghost then self.ghostOwner, only = nil, nil end
 	for _, sp in ipairs(self.sprites) do
-		if not sp.dead then
+		if not sp.dead and (not only or sp == only) then
 			if sp.kind == "fighter" then
 				self:FixPosition(sp)
 				local air = self:IsInAir(sp)
@@ -272,6 +275,7 @@ function Battle:Update()
 			if animate then sp:RenderAnimate() end
 		end
 	end
+	if only then return end
 	self:Push()
 	if animate then self:CheckHits() end
 	for i = #self.sprites, 1, -1 do
@@ -438,7 +442,7 @@ function Battle:Draw()
 	local f1, f2 = self.fighters[1], self.fighters[2]
 	local first, second = f1, f2
 	if f1:IsAttacking() and not f2:IsAttacking() then first, second = f2, f1 end
-	if self.bisha then
+	if self.bisha and self.bisha.f.kind == "fighter" then
 		first, second = (self.bisha.f == f1) and f2 or f1, self.bisha.f
 	end
 	self:DrawFighter(first, 20)
@@ -511,6 +515,11 @@ local function bar(x, y, w, h, frac, col, back, right)
 end
 
 function Battle:DrawHud()
+	if BVNHud.Available() then
+		BVNHud.Draw(self)
+		self:DrawCenterText()
+		return
+	end
 	for side = 1, 2 do
 		local f = self.fighters[side]
 		local right = side == 2
@@ -559,6 +568,10 @@ function Battle:DrawHud()
 	-- Timer.
 	D.UI(SW / 2 - 50, 10, 100, 62, BLACK, 220, 10)
 	D.TextC(self.time < 0 and "∞" or tostring(math.max(0, self.time)), SW / 2, 14, 46, WHITE)
+	self:DrawCenterText()
+end
+
+function Battle:DrawCenterText()
 	if self.phase == "intro" or self.phase == "go" then
 		if self.phase == "go" then D.TextC("FIGHT!", SW / 2, 260, 110, {255, 80, 40}) end
 		D.TextC("ROUND " .. self.round, SW / 2, 180, 50, WHITE, self.phase == "intro" and 255 or 120)
