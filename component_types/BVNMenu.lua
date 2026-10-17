@@ -6,9 +6,12 @@ local WHITE, BLACK = {255, 255, 255}, {0, 0, 0}
 local SCALE, OX = 1.2, 160
 
 local MODES = {
-	{text = "闯关模式", mode = "arcade", desc = "单人挑战连续的电脑对手"},
-	{text = "对战模式", mode = "pvp", desc = "两名玩家同屏对战"},
-	{text = "单人对战", mode = "cpu", desc = "自选对手与电脑一对一"},
+	{text = "单人闯关", mode = "arcade", desc = "按原作关卡挑战电脑"},
+	{text = "组队闯关", mode = "arcade", team = true, desc = "三人一组按原作关卡挑战电脑"},
+	{text = "单人对战", mode = "pvp", desc = "两名玩家一对一"},
+	{text = "组队对战", mode = "pvp", team = true, desc = "两名玩家各选三人"},
+	{text = "单人对电脑", mode = "cpu", desc = "自选对手与电脑一对一"},
+	{text = "组队对电脑", mode = "cpu", team = true, desc = "自选三人队伍对战电脑"},
 	{text = "观战模式", mode = "watch", desc = "电脑之间的对战"},
 	{text = "训练模式", mode = "training", desc = "对手不动，体力与气无限"},
 }
@@ -88,6 +91,7 @@ BVNMenu = {
 			end
 			if m.t > 8 and (Input.GetActionDown("confirm") or Input.GetActionDown("p1_attack")) then
 				g.mode = MODES[m.mode].mode
+				g.team = MODES[m.mode].team and true or false
 				BVNSound.Play("ui_confirm")
 				BVNMenu.Enter(g, "select")
 			elseif Input.GetActionDown("back") or Input.GetActionDown("p1_jump") then
@@ -105,7 +109,7 @@ BVNMenu = {
 		if s == 1 then return 1 end
 		-- Player 1 also picks the opponent in single and watch modes.
 		if g.mode == "cpu" or g.mode == "watch" or g.mode == "training" then
-			return m.slots[1].done and m.picks[1] and m.picks[1].assist and 1 or nil
+			return m.slots[1].done and 1 or nil
 		end
 		return nil
 	end,
@@ -157,10 +161,14 @@ BVNMenu = {
 					id = BVNMenu.Resolve(id, isAssist)
 					if id and BVNMenu.Available(id, isAssist) then
 						BVNSound.Play("ui_confirm")
-						m.picks[s] = m.picks[s] or {}
+						m.picks[s] = m.picks[s] or {team = {}}
 						if not isAssist then
-							m.picks[s].fighter = id
-							slot.grid, slot.r, slot.c, slot.form = BVNConfig.select.assists, 1, s == 1 and 1 or #BVNConfig.select.assists[1], 0
+							local pk = m.picks[s]
+							pk.team[#pk.team + 1] = id
+							pk.fighter = pk.team[1]
+							if #pk.team >= (g.team and 3 or 1) then
+								slot.grid, slot.r, slot.c, slot.form = BVNConfig.select.assists, 1, s == 1 and 1 or #BVNConfig.select.assists[1], 0
+							end
 						else
 							m.picks[s].assist = id
 							slot.done = true
@@ -169,9 +177,11 @@ BVNMenu = {
 						BVNSound.Play("ui_select")
 					end
 				elseif Input.GetActionDown(p .. "jump") or (who == 1 and Input.GetActionDown("back")) then
-					if slot.grid == BVNConfig.select.assists then
+					local pk = m.picks[s]
+					if slot.grid == BVNConfig.select.assists or (pk and #pk.team > 0) then
 						slot.grid, slot.r, slot.c = BVNConfig.select.grid, 1, s == 1 and 1 or 10
-						m.picks[s].fighter = nil
+						table.remove(pk.team)
+						pk.fighter = pk.team[1]
 					elseif s == 2 and g.mode ~= "pvp" then
 						m.slots[1].done = false
 						m.slots[1].grid = BVNConfig.select.assists
@@ -233,9 +243,9 @@ BVNMenu = {
 			if (m.t // 30) % 2 == 0 then text("按 J 或 Enter 开始", 400, 470, 26, WHITE) end
 		else
 			for i, it in ipairs(MODES) do
-				local y = 320 + (i - 1) * 46
+				local y = 250 + (i - 1) * 38
 				local on = i == m.mode
-				rect(260, y - 4, 280, 38, on and {230, 110, 20} or BLACK, on and 230 or 150, 2)
+				rect(260, y - 3, 280, 32, on and {230, 110, 20} or BLACK, on and 230 or 150, 2)
 				text(it.text, 400, y, 24, on and WHITE or {200, 200, 210})
 			end
 			text(MODES[m.mode].desc, 400, 560, 16, {230, 230, 230})
@@ -274,7 +284,7 @@ BVNMenu = {
 			-- Big face and name of the hovered or picked fighter.
 			local pick = m.picks[s]
 			local id = pick and pick.fighter
-			if not id and cell and slot.grid == BVNConfig.select.grid then
+			if cell and slot.grid == BVNConfig.select.grid and not slot.done then
 				id = slot.form > 0 and cell.more[slot.form] or cell.id
 			end
 			local info = id and BVNMenu.FighterInfo(id)
@@ -282,6 +292,12 @@ BVNMenu = {
 			if info then
 				img(faceFile(info.urls.face_big), px, 470, 1, 255, 2)
 				text(info.name, px + 122, 540, 20, WHITE)
+			end
+			if pick and pick.team and #pick.team > 1 or (g.team and pick) then
+				for i, tid in ipairs(pick.team) do
+					local ti = BVNMenu.FighterInfo(tid)
+					if ti then img(faceFile(ti.urls.face), px + 4 + (i - 1) * 54, 410, 1, 255, 2) end
+				end
 			end
 			if pick and pick.assist then
 				local a = BVNMenu.AssistInfo(pick.assist)

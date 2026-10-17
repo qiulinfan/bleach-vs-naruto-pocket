@@ -149,8 +149,17 @@ BVNHud = {
 			ov[en .. "/txtmc"] = {frame = (f.char.comic_type or 0) + 1, unflip = side == 2}
 			local fb = f.info.urls.face_bar and ("bvn/face/" .. f.info.urls.face_bar)
 			ov[face .. "/face/ct"] = {draw = image(fb, 0, 0)}
-			ov[face .. "/face2"] = {hide = true}
-			ov[face .. "/face3"] = {hide = true}
+			-- Team members still to come (FightFaceGroup).
+			local team = b.opts["p" .. side].team or {}
+			for k = 2, 3 do
+				local id = team[(b.teamIndex and b.teamIndex[side] or 1) + k - 1]
+				local mi = id and BVNMenu.FighterInfo(id)
+				if mi and mi.urls.face_bar then
+					ov[face .. "/face" .. k .. "/ct"] = {draw = image("bvn/face/" .. mi.urls.face_bar, 0, 0)}
+				else
+					ov[face .. "/face" .. k] = {hide = true}
+				end
+			end
 			for i = 1, 2 do
 				ov[win .. "/w" .. i] = b.wins[side] >= i and {frame = 999} or {hide = true}
 			end

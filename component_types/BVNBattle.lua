@@ -63,8 +63,11 @@ function BVNBattle.New(opts)
 	local keep = {}
 	for side = 1, 2 do
 		local p = opts["p" .. side]
-		local info = BVNMenu.FighterInfo(p.fighter)
-		if info then keep[#keep + 1] = info.urls.file:gsub("%.swf$", "") end
+		p.team = p.team or {p.fighter}
+		for _, id in ipairs(p.team) do
+			local info = BVNMenu.FighterInfo(id)
+			if info then keep[#keep + 1] = info.urls.file:gsub("%.swf$", "") end
+		end
 		local a = p.assist and BVNMenu.AssistInfo(p.assist)
 		if a then keep[#keep + 1] = "fz_" .. a.urls.file:gsub("%.swf$", "") end
 	end
@@ -80,29 +83,51 @@ function BVNBattle.New(opts)
 	b.round = 1
 	b.cam = {x = 400, y = 300, w = 800}
 	b.fighters = {}
-	for side = 1, 2 do
-		local p = opts["p" .. side]
-		local info = BVNMenu.FighterInfo(p.fighter)
-		local char = BVNRuntime.Character(info.urls.file:gsub("%.swf$", ""))
-		char.comic_type = info.comic_type
-		local input = BVNInput.New(side, p.cpu)
-		local f = BVNFighter.New(b, char, info.start_frame or 1, side, input)
-		f.info = info
-		f.kind = "fighter"
-		if p.cpu and not p.noAI then f.ai = BVNAI.New(f, p.level or opts.level or 3) end
-		if p.assist then
-			local ainfo = BVNMenu.AssistInfo(p.assist)
-			local achar = ainfo and BVNRuntime.Character("fz_" .. ainfo.urls.file:gsub("%.swf$", ""))
-			if achar then
-				achar.comic_type = ainfo.comic_type
-				f.assist = BVNBullet.Assist(b, f, achar)
-				f.assistInfo = ainfo
-			end
-		end
-		b.fighters[side] = f
-	end
+	b.teamMode = #opts.p1.team > 1 or #opts.p2.team > 1
+	b.teamIndex = {1, 1}
+	for side = 1, 2 do b.fighters[side] = b:CreateFighter(side, opts["p" .. side].team[1]) end
 	b:StartRound()
 	return b
+end
+
+function Battle:CreateFighter(side, id)
+	local p = self.opts["p" .. side]
+	local info = BVNMenu.FighterInfo(id)
+	local char = BVNRuntime.Character(info.urls.file:gsub("%.swf$", ""))
+	char.comic_type = info.comic_type
+	local input = BVNInput.New(side, p.cpu)
+	local f = BVNFighter.New(self, char, info.start_frame or 1, side, input)
+	f.info = info
+	f.kind = "fighter"
+	-- Arcade stage multipliers (mission.json properties).
+	if p.hpRate then f.hpMax = f.hpMax * p.hpRate; f.hp = f.hpMax end
+	if p.attackRate then f.attackRate = p.attackRate end
+	if p.cpu and not p.noAI then f.ai = BVNAI.New(f, p.level or self.opts.level or 3) end
+	if p.assist then
+		local ainfo = BVNMenu.AssistInfo(p.assist)
+		local achar = ainfo and BVNRuntime.Character("fz_" .. ainfo.urls.file:gsub("%.swf$", ""))
+		if achar then
+			achar.comic_type = ainfo.comic_type
+			f.assist = BVNBullet.Assist(self, f, achar)
+			f.assistInfo = ainfo
+		end
+	end
+	return f
+end
+
+-- Team mode: the loser's next member enters (GameRoundCtrl.startNextTeamFight).
+-- Returns false when that team has nobody left.
+function Battle:NextMember(side)
+	local team = self.opts["p" .. side].team
+	local i = self.teamIndex[side] + 1
+	if i > #team then return false end
+	local old = self.fighters[side]
+	local f = self:CreateFighter(side, team[i])
+	if (old.char.comic_type or 0) == (f.char.comic_type or 0) then f.qi = math.min(f.qiMax, old.qi + 100) end
+	if old.assist then f.fzqi = old.fzqi end
+	self.teamIndex[side] = i
+	self.fighters[side] = f
+	return true
 end
 
 function Battle:TargetOf(sp)
@@ -118,7 +143,9 @@ function Battle:StartRound()
 		local p = side == 1 and self.map.p1 or self.map.p2
 		f.x, f.y = p[1], p[2]
 		f.dir = side == 1 and 1 or -1
-		f.hp, f.alive = f.hpMax, true
+		if not (self.teamMode and f.keepHp) then f.hp = f.hpMax end
+		f.keepHp = nil
+		f.alive = true
 		f.energy, f.overload = f.energyMax, false
 		f:SetVelocity(0, 0)
 		f.allowLoseHP = true
@@ -390,7 +417,27 @@ function Battle:UpdatePhase(animate)
 			for _, f in ipairs(self.fighters) do f.allowLoseHP = false end
 			if w:HasLabel("胜利") then w:DoAction("胜利"); w.state = 61 end
 		end
-		if self.phaseT > 300 then
+		if self.phaseT > 300 and self.teamMode then
+			for _, f in ipairs(self.fighters) do f.posed = false end
+			self.timeOver = false
+			local w = self.winner or 0
+			local over = false
+			if w == 0 then
+				local a, b2 = self:NextMember(1), self:NextMember(2)
+				if not a or not b2 then over = true; self.matchWinner = a and 1 or (b2 and 2 or 1) end
+			else
+				local survivor = self.fighters[w]
+				survivor.keepHp = true
+				survivor.hp = math.min(survivor.hpMax, survivor.hp + math.max(survivor.hpMax * 0.2 * math.max(0, self.time) / 60, survivor.hpMax * 0.05))
+				if not self:NextMember(3 - w) then over = true; self.matchWinner = w end
+			end
+			if over then
+				self.phase, self.phaseT = "over", 0
+			else
+				self.round = self.round + 1
+				self:StartRound()
+			end
+		elseif self.phaseT > 300 then
 			if self.winner and self.winner > 0 then self.wins[self.winner] = self.wins[self.winner] + 1 end
 			for _, f in ipairs(self.fighters) do f.posed = false end
 			self.timeOver = false

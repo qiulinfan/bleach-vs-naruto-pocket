@@ -65,37 +65,42 @@ BVNGame = {
 	StartBattle = function(self, picks, mapId)
 		local mode = self.mode
 		local opts = {mode = mode, map = mapId, level = self.level or 3,
-			p1 = {fighter = picks[1].fighter, assist = picks[1].assist, cpu = mode == "watch"},
-			p2 = {fighter = picks[2].fighter, assist = picks[2].assist, cpu = mode ~= "pvp", noAI = mode == "training"}}
+			p1 = {team = picks[1].team or {picks[1].fighter}, assist = picks[1].assist, cpu = mode == "watch"},
+			p2 = {team = picks[2].team or {picks[2].fighter}, assist = picks[2].assist, cpu = mode ~= "pvp", noAI = mode == "training",
+				hpRate = picks[2].hpRate, attackRate = picks[2].attackRate}}
 		self.lastPicks, self.lastMap = picks, mapId
 		self.battle = BVNBattle.New(opts)
 		self.match_winner = 0
 	end,
 
-	-- Arcade: eight CPU opponents of rising level on random stages.
+	-- Arcade (MessionModel): the stage list for the player's series and mode from mission.json.
 	StartArcade = function(self, pick)
-		local pool = {}
-		for _, d in ipairs(BVNConfig.fighter.fighter.data) do
-			if d.id ~= pick.fighter and BVNMenu.Available(d.id) and not d.id:find("^random") then pool[#pool + 1] = d.id end
+		local info = BVNMenu.FighterInfo(pick.team and pick.team[1] or pick.fighter)
+		local comic = info and info.comic_type or 0
+		local mode = self.team and 0 or 1
+		local level
+		for _, l in ipairs(BVNConfig.mission.level) do
+			if l.comic_type == comic and l.game_mode == mode then level = l end
 		end
-		local ladder = {}
-		for i = 1, math.min(8, #pool) do
-			local j = i + math.floor(BVNRuntime.RAND() * (#pool - i + 1))
-			pool[i], pool[j] = pool[j], pool[i]
-			ladder[i] = pool[i]
-		end
-		self.arcade = {pick = pick, ladder = ladder, stage = 1}
+		self.arcade = {pick = pick, stages = level and level.stage or {}, stage = 1}
 		self:NextArcade()
 	end,
 
 	NextArcade = function(self)
 		local a = self.arcade
-		local maps = BVNConfig.map.map.data
-		local mapId = maps[2 + math.floor(BVNRuntime.RAND() * (#maps - 1))].id
-		local assist = BVNMenu.Resolve("random", true)
-		self.level = math.min(6, 1 + a.stage // 2)
+		local st = a.stages[a.stage]
+		local team = {}
+		for _, id in ipairs(st and st.fighter or {}) do
+			if BVNMenu.Available(id) and (#team < (self.team and 3 or 1)) then team[#team + 1] = id end
+		end
+		if #team == 0 then team = {BVNMenu.Resolve("random")} end
+		local assist = st and st.assistant
+		if not (assist and BVNMenu.Available(assist, true)) then assist = BVNMenu.Resolve("random", true) end
+		local props = st and st.properties or {}
+		self.level = 3
 		self.mode = "arcade"
-		self:StartBattle({a.pick, {fighter = a.ladder[a.stage], assist = assist}}, mapId)
+		self:StartBattle({a.pick, {team = team, fighter = team[1], assist = assist, hpRate = props.hp_rate, attackRate = props.attack_rate}},
+			st and BVNMaps[st.map] and st.map or "xianshi")
 	end,
 
 	AfterMatch = function(self)
@@ -105,7 +110,7 @@ BVNGame = {
 		if self.arcade then
 			local a = self.arcade
 			if b.matchWinner == 1 then a.stage = a.stage + 1 end
-			if a.stage > #a.ladder then
+			if a.stage > #a.stages then
 				self.arcade = nil
 				BVNMenu.Enter(self, "title")
 				self.menu.phase = "title"
@@ -159,7 +164,9 @@ BVNGame = {
 		if name == "start_battle" then
 			self.mode = args.mode or "watch"
 			self.level = args.level or 3
-			self:StartBattle({{fighter = args.p1 or "ichigo", assist = args.p1_assist}, {fighter = args.p2 or "naruto", assist = args.p2_assist}},
+			local t1 = args.p1_team or {args.p1 or "ichigo"}
+			local t2 = args.p2_team or {args.p2 or "naruto"}
+			self:StartBattle({{team = t1, fighter = t1[1], assist = args.p1_assist}, {team = t2, fighter = t2[1], assist = args.p2_assist}},
 				args.map or "xianshi")
 			if args.skip_intro then
 				local bt = self.battle

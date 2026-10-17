@@ -7,12 +7,14 @@ of the original ActionScript kernel.
 
 - The original roster and assists, with their alternate forms, from the
   original select grid.
-- Arcade (eight CPU opponents), versus (two players), single match against
-  the CPU, CPU vs CPU, and training.
+- Single and team (3 vs 3) modes: arcade along the original mission ladders
+  (by the player's series, with each stage's HP and attack multipliers),
+  versus (two players), against the CPU, CPU vs CPU, and training.
 - The original moves: chains, skills, throws, air moves, ultimates with
   cut-ins, bankai transformations, guard and guard break, quick get-up,
   burst / substitution, assists, bullets and summoned attackers.
-- Best of three rounds, 60-second timer, the CPU's original difficulty tables.
+- Best of three rounds (single) or until a team runs out (team), 60-second
+  timer, the original HUD, round banners and the CPU's difficulty tables.
 
 ## Controls
 

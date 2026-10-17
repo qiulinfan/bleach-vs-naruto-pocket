@@ -152,7 +152,7 @@ def main():
     for f in (ASSETS / "map").glob("*.png"):
         shutil.copy(f, ROOT / "images" / "bvn" / "map" / f.name)
     cfg = {}
-    for name in ("fighter", "assist", "map"):
+    for name in ("fighter", "assist", "map", "mission"):
         cfg[name] = json.loads((args.config / (name + ".json")).read_text(encoding="utf-8"))
     sel = ET.parse(args.config / "select.xml").getroot()
     def rows(tag):

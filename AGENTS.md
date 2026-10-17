@@ -62,7 +62,8 @@ the submodules under `external/`; everything converted from them is ignored
 - Effects are drawn with normal blending; additive ones are stored with
   brightness as alpha (`tools/convert_effects.py`), an approximation of the
   original ADD blend mode, which the engine does not offer.
-- Ghost step (瞬步 variants with L+direction) and team mode are not ported.
+- Not ported yet: the original title, select and loading screens (our own
+  layout uses the original faces and config), survivor and musou modes.
 
 ## Testing
 

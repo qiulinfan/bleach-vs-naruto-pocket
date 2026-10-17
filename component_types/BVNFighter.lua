@@ -722,7 +722,7 @@ function Fighter:RenderJumpAnimate()
 	end
 	if self.vy >= 0 then
 		self.isJumping = false
-		self.isFalling = false
+		self.isFalling = true
 	end
 end
 
