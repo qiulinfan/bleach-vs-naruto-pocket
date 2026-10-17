@@ -37,6 +37,17 @@ BVNGame = {
 
 	OnUpdate = function(self)
 		local b = self.battle
+		if b and self.vs then
+			-- The pre-fight VS screen (LoadingStage): faces, names and the stage.
+			self.vs = self.vs + 1
+			Camera.SetZoom(1)
+			Camera.SetPosition(6.4, 3.6)
+			self:DrawVs(b)
+			if self.vs > 150 or (self.vs > 30 and (Input.GetActionDown("confirm") or Input.GetActionDown("p1_attack"))) then
+				self.vs = nil
+			end
+			return
+		end
 		if b then
 			if b.phase == "over" then
 				b.phaseT = b.phaseT + 1
@@ -71,6 +82,7 @@ BVNGame = {
 		self.lastPicks, self.lastMap = picks, mapId
 		self.battle = BVNBattle.New(opts)
 		self.match_winner = 0
+		self.vs = 0
 	end,
 
 	-- Arcade (MessionModel): the stage list for the player's series and mode from mission.json.
@@ -124,6 +136,29 @@ BVNGame = {
 		BVNSound.Music("bvn/bgm/select")
 	end,
 
+	DrawVs = function(self, b)
+		local sel = BVNUIData and BVNUIData["$select$MC_stgSelect"]
+		if sel then Image.DrawUIScaled(sel.parts[1].parts[1].img, 0, 0, 1.6, 1.6, 255, 255, 255, 255, 0) end
+		local t = math.min(1, self.vs / 20)
+		for side = 1, 2 do
+			local team = b.opts["p" .. side].team
+			for i = #team, 1, -1 do
+				local info = BVNMenu.FighterInfo(team[i])
+				if info and info.urls.face_win then
+					local k = i == 1 and 1.6 or 0.9
+					local w = 300 * k
+					local x = side == 1 and (-w + t * (w + 20) + (i - 1) * 170) or (1280 + w - t * (w + 20) - w - (i - 1) * 170)
+					local y = i == 1 and 140 or 360
+					Image.DrawUIScaled("bvn/face/" .. info.urls.face_win, x, y, side == 1 and k or -k, k, 255, 255, 255, 255, 2 + (3 - i))
+				end
+			end
+			local info = BVNMenu.FighterInfo(team[1])
+			D.TextC(info and info.name or "", side == 1 and 260 or 1020, 560, 34, WHITE)
+		end
+		D.TextC("VS", 640, 300, 120, {255, 80, 40}, 255 * t)
+		D.TextC(b.map.name or "", 640, 640, 28, {230, 230, 255})
+	end,
+
 	DrawResult = function(self)
 		local b = self.battle
 		local w = b.fighters[b.matchWinner or 1]
@@ -169,6 +204,7 @@ BVNGame = {
 			self:StartBattle({{team = t1, fighter = t1[1], assist = args.p1_assist}, {team = t2, fighter = t2[1], assist = args.p2_assist}},
 				args.map or "xianshi")
 			if args.skip_intro then
+				self.vs = nil
 				local bt = self.battle
 				for _, f in ipairs(bt.fighters) do f:Idle() end
 				bt.phase, bt.phaseT, bt.actionEnable = "fight", 0, true
