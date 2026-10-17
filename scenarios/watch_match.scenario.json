@@ -3,7 +3,7 @@
   "name": "watch_match",
   "description": "From the title menu, start a CPU vs CPU match (Ichigo + Kon against Naruto + Gaara on the default stage) and play it to a winner.",
   "seed": 1,
-  "max_frames": 20000,
+  "max_frames": 22000,
   "frames_per_step": 4,
   "controls": {
     "actions": [
@@ -159,7 +159,25 @@
       "actions": {}
     },
     {
-      "frames": 19000
+      "frames": 3000
+    },
+    {
+      "frames": 3000
+    },
+    {
+      "frames": 3000
+    },
+    {
+      "frames": 3000
+    },
+    {
+      "frames": 3000
+    },
+    {
+      "frames": 3000
+    },
+    {
+      "frames": 3000
     }
   ]
 }
