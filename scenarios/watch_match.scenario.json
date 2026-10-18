@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "name": "watch_match",
+  "description": "Through the original screens: title menu, SINGLE PLAY > SINGLE WATCH, Ichigo + Kon against Naruto + Gaara on Xianshi via the select and map screens, the VS loading screen, then the CPU vs CPU match played to a winner.",
+  "seed": 1,
+  "max_frames": 26000,
+  "frames_per_step": 4,
+  "controls": {
+    "actions": [
+      "confirm",
+      "p1_down",
+      "p1_attack",
+      "p1_move"
+    ]
+  },
+  "success": [
+    {
+      "actor": "Game",
+      "component": "game",
+      "property": "match_winner",
+      "op": ">=",
+      "value": 1
+    }
+  ],
+  "script": [
+    {
+      "frames": 300,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "confirm": true
+      }
+    },
+    {
+      "frames": 40,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 10,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 110,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 40,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 100,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 40,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 100,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 6,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    }
+  ]
+}

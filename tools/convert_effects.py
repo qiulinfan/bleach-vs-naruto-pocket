@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Render 5DPLAY's shared effect library (hit sparks, dust, cut-in, ...) from the
+FlashSrc effect XFL into frames, and copy its linked sounds.
+
+Writes (ignored by Git):
+  images/bvn/fx/<class>_<n>.png
+  audio/bvn/fx/<class>.<ext>
+  component_types/generated/BVNFxData.lua   {effects = {[class] = {frames, add}}, sounds = {[class] = clip}}
+Effects whose EffectVO uses an additive blend (Flash BlendMode.ADD) are marked
+add; component_types/BVNEffects.lua draws them with the engine's "add" blend.
+"""
+import hashlib
+import math
+import re
+import shutil
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from convert_bvn import ROOT, lua_val  # noqa: E402
+from xfl import NS, Library, composite, lerp_m, matrix, write_dat_sound  # noqa: E402
+
+XFL = ROOT / "external" / "FlashSrc" / "SRC_XFL" / "effect"
+# The shared sound library (KO, ghost step, menu sounds, ...): linked classes such as snd_ko.
+SOUND_XFL = ROOT / "external" / "FlashSrc" / "SRC_XFL" / "#swc" / "sound"
+ADDITIVE = {"XG_bs", "XG_cbs", "XG_jump_air", "xg_hitfloor_yan", "XG_mfdjx", "XG_ghost_step", "xg_mc_change", "XG_kan2",
+            "XG_kanx2", "XG_qdj", "XG_qdjx", "XG_mfdj", "XG_fire", "XG_ice", "XG_leidian", "XG_fykan", "XG_fykanx", "XG_fyq",
+            "XG_fyqx", "XG_mffy", "XG_mffyx", "XG_fire_fy", "XG_ice_fy", "XG_dian_fy", "XG_kan", "XG_kanx", "XG_bdj"}
+
+
+# Named holders filled at runtime (BishaFaceEffectView puts the fighter's face in facemc1 / facemc2).
+HOLDERS = {"bisha_face_mc": ("facemc1", "facemc2")}
+
+
+def holder_matrices(lib, sym, names):
+    """Per frame, the matrix of each named top-level instance (motion tweens interpolated)."""
+    out = {n: [] for n in names}
+    for t in range(lib.length(sym)):
+        found = {}
+        for frames in lib.layers(sym):
+            for k, (idx, dur, fr) in enumerate(frames):
+                if not (idx <= t < idx + dur):
+                    continue
+                nxt = frames[k + 1] if k + 1 < len(frames) else None
+                tween = fr.get("tweenType") == "motion" and nxt is not None and dur > 0
+                els = lib.elements(fr)
+                for i, el in enumerate(els):
+                    if el.get("name") in names:
+                        m = matrix(el)
+                        if tween:
+                            nels = lib.elements(nxt[2])
+                            if i < len(nels):
+                                m = lerp_m(m, matrix(nels[i]), (t - idx) / dur)
+                        found[el.get("name")] = [round(v, 4) for v in m]
+                break
+        for n in names:
+            out[n].append(found.get(n, False))
+    return out
+
+
+def main():
+    lib = Library(XFL)
+    out_dir = ROOT / "images" / "bvn" / "fx"
+    snd_dir = ROOT / "audio" / "bvn" / "fx"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    shutil.rmtree(snd_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    snd_dir.mkdir(parents=True)
+    effects = {}
+    for cls, sym in sorted(lib.linkage.items()):
+        n = lib.length(sym)
+        frames, seen = [], {}
+        add = cls in ADDITIVE
+        for t in range(n):
+            im, x0, y0 = composite(lib.draw_list(sym, t, (1, 0, 0, 1, 0, 0), 1.0))
+            if im is None or im.getbbox() is None:
+                frames.append({})
+                continue
+            bb = im.getbbox()
+            im = im.crop(bb)
+            key = hashlib.sha1(im.tobytes() + bytes(str(im.size), "ascii")).hexdigest()
+            if key not in seen:
+                name = "%s_%d.png" % (re.sub(r"\W", "_", cls), len(seen) + 1)
+                im.save(out_dir / name, optimize=True)
+                seen[key] = name
+            frames.append({"img": "bvn/fx/" + seen[key], "x": x0 + bb[0], "y": y0 + bb[1], "w": im.width, "h": im.height})
+        labels = {}
+        for layer in lib.layers_all(sym):
+            for idx, _, fr in layer:
+                if fr.get("name"):
+                    labels[fr.get("name")] = idx + 1
+        effects[cls] = {"frames": frames, "add": add, "labels": labels}
+        if cls in HOLDERS:
+            effects[cls]["holders"] = holder_matrices(lib, sym, HOLDERS[cls])
+        print("[fx] %s: %d frames, %d images" % (cls, n, len(seen)), flush=True)
+    sounds = {}
+    for sl in (lib, SOUND_XFL):
+        sl = sl if isinstance(sl, Library) else Library(sl)  # Library() rebinds xfl's current document
+        for cls, path in sl.sounds.items():
+            if path.exists():
+                shutil.copy(path, snd_dir / (cls + path.suffix.lower()))
+                sounds[cls] = "bvn/fx/" + cls
+            elif sl.sound_items[cls].get("soundDataHRef"):
+                write_dat_sound(sl.sound_items[cls], snd_dir / (cls + ".wav"))
+                sounds[cls] = "bvn/fx/" + cls
+    gen = ROOT / "component_types" / "generated"
+    gen.mkdir(parents=True, exist_ok=True)
+    (gen / "BVNFxData.lua").write_text("-- Generated by tools/convert_effects.py from 5DPLAY's effect library. Do not edit.\n"
+                                       "BVNFxData = %s\n" % lua_val({"effects": effects, "sounds": sounds}), encoding="utf-8")
+    print("effects %d, sounds %d" % (len(effects), len(sounds)))
+
+
+if __name__ == "__main__":
+    main()

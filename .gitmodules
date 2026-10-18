@@ -1,0 +1,9 @@
+[submodule "external/TagAssets"]
+	path = external/TagAssets
+	url = https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_TagAssets.git
+[submodule "external/BleachVsNaruto"]
+	path = external/BleachVsNaruto
+	url = https://github.com/5DPLAY-Game-Studio/BleachVsNaruto.git
+[submodule "external/FlashSrc"]
+	path = external/FlashSrc
+	url = https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_FlashSrc.git

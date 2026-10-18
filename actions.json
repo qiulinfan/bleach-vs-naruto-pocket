@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "actions": {
+    "confirm": {"type": "button", "keys": ["return", "space"]},
+    "back": {"type": "button", "keys": ["backspace", "escape"]},
+    "p1_move": {"type": "axis", "negative": ["a"], "positive": ["d"]},
+    "p1_up": {"type": "button", "keys": ["w"]},
+    "p1_down": {"type": "button", "keys": ["s"]},
+    "p1_attack": {"type": "button", "keys": ["j"]},
+    "p1_jump": {"type": "button", "keys": ["k"]},
+    "p1_dash": {"type": "button", "keys": ["l"]},
+    "p1_skill": {"type": "button", "keys": ["u"]},
+    "p1_super": {"type": "button", "keys": ["i"]},
+    "p1_assist": {"type": "button", "keys": ["o"]},
+    "p2_move": {"type": "axis", "negative": ["left"], "positive": ["right"]},
+    "p2_up": {"type": "button", "keys": ["up"]},
+    "p2_down": {"type": "button", "keys": ["down"]},
+    "p2_attack": {"type": "button", "keys": ["keypad 1", ","]},
+    "p2_jump": {"type": "button", "keys": ["keypad 2", "."]},
+    "p2_dash": {"type": "button", "keys": ["keypad 3", "/"]},
+    "p2_skill": {"type": "button", "keys": ["keypad 4", ";"]},
+    "p2_super": {"type": "button", "keys": ["keypad 5", "'"]},
+    "p2_assist": {"type": "button", "keys": ["keypad 6", "]"]}
+  }
+}
