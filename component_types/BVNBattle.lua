@@ -58,6 +58,7 @@ local function loadMap(id)
 	end
 	return map
 end
+BVNBattle.LoadMap = loadMap -- musou: BVNMusouBattle builds its stage from the same map data
 
 -- Construction ---------------------------------------------------------------------------
 
@@ -120,7 +121,11 @@ function Battle:CreateFighter(side, id)
 	f.info = info
 	f.kind = "fighter"
 	f.baseHpMax = f.hpMax
-	if p.cpu and not p.noAI then f.ai = BVNAI.New(f, p.level or self.opts.level or 1) end
+	-- FighterAICtrl: the CPU logic is the fighter's input.
+	if p.cpu and not p.noAI then
+		f.ai = BVNAI.New(f, p.level or self.opts.level or 1)
+		f.input = f.ai
+	end
 	if p.assist then
 		local ainfo = BVNMenu.AssistInfo(p.assist)
 		local achar = ainfo and BVNRuntime.Character("fz_" .. ainfo.urls.file:gsub("%.swf$", ""))
@@ -296,6 +301,7 @@ function Battle:CallAssist(f)
 	local a = f.assist
 	if not a or (not a.dead and a.clip) then return false end
 	f.fzqi = 0
+	if f.LogInput then f:LogInput("O") end
 	a:Go()
 	self.sprites[#self.sprites + 1] = a
 	return true

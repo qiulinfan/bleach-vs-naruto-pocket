@@ -83,6 +83,7 @@ function BVNFighter.New(battle, char, form, side, input)
 	f.ghosts = {}
 	f.explodeHitFrame, f.explodeSteelFrame = 0, 0
 	f.isTouchFloor = true
+	if battle.training then f.trainingInputs = {} end
 	f.jumpTimes, f.airHitTimes = 2, 1
 
 	f.mcCtrl = setmetatable({f = f}, {__index = BVNCtrl.Mc})
@@ -377,6 +378,15 @@ function Fighter:SetAirAllAct()
 	self.act.airMove = true
 end
 
+-- FighterEvent.DO_ACTION input text (FighterInputCmd), read by the training input history.
+function Fighter:LogInput(text, action, highlight)
+	if not self.battle.training or not text then return end
+	self.trainingInputs = self.trainingInputs or {}
+	local t = self.trainingInputs
+	t[#t + 1] = {input = text, action = action, highlight = highlight}
+	if #t > 20 then table.remove(t, 1) end
+end
+
 -- FighterMcCtrler.doAction.
 function Fighter:DoAction(label, airAct, delay)
 	if label == nil then return end
@@ -538,17 +548,17 @@ function Fighter:RenderFloorAction()
 	local k, a = self.input, self.act
 	local function L(win, pred) return a[win] and k[pred](k) end
 	if k:special() then self.battle:DoSpecial(self) end
-	if L("catch1", "catch1") then self:DoCatch(a.catch1) end
-	if L("catch2", "catch2") then self:DoCatch(a.catch2) end
-	if L("bishaSUPER", "bishaSUPER") then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) end
-	if L("bishaUP", "bishaUP") then self:DoBisha(a.bishaUP, a.bishaUPQi) end
-	if L("bisha", "bisha") then self:DoBisha(a.bisha, a.bishaQi) end
-	if L("skill2", "skill2") then self:DoSkill(a.skill2) end
-	if L("skill1", "skill1") then self:DoSkill(a.skill1) end
-	if L("zhao3", "zhao3") then self:DoSkill(a.zhao3) end
-	if L("zhao2", "zhao2") then self:DoSkill(a.zhao2) end
+	if L("catch1", "catch1") then self:DoCatch(a.catch1, "J") end
+	if L("catch2", "catch2") then self:DoCatch(a.catch2, "U") end
+	if L("bishaSUPER", "bishaSUPER") then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true, "SI") end
+	if L("bishaUP", "bishaUP") then self:DoBisha(a.bishaUP, a.bishaUPQi, false, "WI") end
+	if L("bisha", "bisha") then self:DoBisha(a.bisha, a.bishaQi, false, "I") end
+	if L("skill2", "skill2") then self:DoSkill(a.skill2, "WJ") end
+	if L("skill1", "skill1") then self:DoSkill(a.skill1, "SJ") end
+	if L("zhao3", "zhao3") then self:DoSkill(a.zhao3, "WU") end
+	if L("zhao2", "zhao2") then self:DoSkill(a.zhao2, "SU") end
 	if L("attack", "attack") then self:DoAttack(a.attack) end
-	if L("zhao1", "zhao1") then self:DoSkill(a.zhao1) end
+	if L("zhao1", "zhao1") then self:DoSkill(a.zhao1, "U") end
 	if L("defense", "defense") then self:DoDefense() end
 	if L("dash", "dash") then self:DoDash(a.dash) end
 	if L("moveLeft", "moveLEFT") then self:DoMove() end
@@ -598,17 +608,20 @@ end
 function Fighter:DoAttack(label)
 	self:DoAction(label)
 	self.state = S.ATTACK
+	self:LogInput("J", label)
 end
 
-function Fighter:DoSkill(label)
+function Fighter:DoSkill(label, cmd)
 	self:DoAction(label)
 	self.state = S.SKILL
+	self:LogInput(cmd, label)
 end
 
-function Fighter:DoBisha(label, qi, super)
+function Fighter:DoBisha(label, qi, super, cmd)
 	if not self:UseQi(qi or 100) then return false end
 	self.state = super and S.BISHA_SUPER or S.BISHA
 	self:DoAction(label)
+	self:LogInput(cmd, label)
 	return true
 end
 
@@ -630,10 +643,13 @@ function Fighter:AllowCatch()
 	return disX < 2 and disY < 1
 end
 
-function Fighter:DoCatch(label)
+function Fighter:DoCatch(label, btn)
 	if not self:AllowCatch() then return end
+	local k = self.input
+	local side = (k:moveRIGHT() and "D") or (k:moveLEFT() and "A") or (self.dir > 0 and "D" or "A")
 	self:DoAction(label)
 	self.state = S.SKILL
+	self:LogInput(side .. (btn or "J"), label)
 end
 
 function Fighter:DoDash(label)
@@ -645,6 +661,7 @@ function Fighter:DoDash(label)
 	self:DoAction(label or "瞬步")
 	self.state = S.DASH
 	self.allowBeHit, self.applyG = false, false
+	self:LogInput("L", label)
 end
 
 -- Defense (FighterMcHurtCtrl) ------------------------------------------------------------
@@ -762,15 +779,15 @@ function Fighter:RenderAirAction()
 	if L("jump", "jump") then self:DoAirJump() end
 	if L("jumpQuick", "jumpQuick") then self:DoAirJump() end
 	if self:IsAttacking() then
-		if L("bishaSUPER", "bishaSUPER") then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) end
-		if L("bishaUP", "bishaUP") then self:DoBisha(a.bishaUP, a.bishaUPQi) end
-		if L("bisha", "bisha") then self:DoBisha(a.bisha, a.bishaQi) end
-		if L("skill2", "skill2") then self:DoSkill(a.skill2) end
-		if L("skill1", "skill1") then self:DoSkill(a.skill1) end
-		if L("zhao3", "zhao3") then self:DoSkill(a.zhao3) end
-		if L("zhao2", "zhao2") then self:DoSkill(a.zhao2) end
+		if L("bishaSUPER", "bishaSUPER") then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true, "SI") end
+		if L("bishaUP", "bishaUP") then self:DoBisha(a.bishaUP, a.bishaUPQi, false, "WI") end
+		if L("bisha", "bisha") then self:DoBisha(a.bisha, a.bishaQi, false, "I") end
+		if L("skill2", "skill2") then self:DoSkill(a.skill2, "WJ") end
+		if L("skill1", "skill1") then self:DoSkill(a.skill1, "SJ") end
+		if L("zhao3", "zhao3") then self:DoSkill(a.zhao3, "WU") end
+		if L("zhao2", "zhao2") then self:DoSkill(a.zhao2, "SU") end
 		if L("attack", "attack") then self:DoAttack(a.attack) end
-		if L("zhao1", "zhao1") then self:DoSkill(a.zhao1) end
+		if L("zhao1", "zhao1") then self:DoSkill(a.zhao1, "U") end
 	end
 	if L("dash", "dash") then self:DoDashAir(a.dash) end
 	if a.airMove then
@@ -803,6 +820,7 @@ function Fighter:DoDashAir(label)
 	self.state = S.DASH
 	self.allowBeHit, self.applyG = false, false
 	self.act.jumpTimes = 0
+	self:LogInput("L", label)
 end
 
 function Fighter:DoJump()
@@ -814,6 +832,7 @@ function Fighter:DoJump()
 	self.jumpDelay = 2
 	self.isJumping = true
 	self.state = S.JUMP
+	self:LogInput("K", "跳")
 end
 
 -- doJumpDown: drop through a platform at speed 5 (platforms refuse vy >= 2.5).
@@ -838,6 +857,7 @@ function Fighter:DoAirJump()
 	self.jumpDelay = 1
 	self.isJumping = true
 	self.state = S.JUMP
+	self:LogInput("K", "跳")
 end
 
 function Fighter:DoAirAttack(label)
@@ -847,19 +867,22 @@ function Fighter:DoAirAttack(label)
 	self.act.jumpTimes = 0
 	self:DoAction(label, true)
 	self.state = S.ATTACK
+	self:LogInput("KJ", label)
 end
 
 function Fighter:DoAirSkill(label)
 	if not self.doingAction and self.act.airHitTimes <= 0 then return end
+	local cmd = "KU"
 	if self.isJumping then
 		local k, act = self.input, nil
 		if k:zhao3() then act = "跳招-上" end
 		if k:zhao2() then act = "跳招-下" end
-		if act and self:HasLabel(act) then label = act end
+		if act and self:HasLabel(act) then label, cmd = act, act == "跳招-上" and "WKU" or "SKU" end
 	end
 	self.act.airHitTimes, self.act.jumpTimes = 0, 0
 	self:DoAction(label, true)
 	self.state = S.SKILL
+	self:LogInput(cmd, label)
 end
 
 function Fighter:DoAirBisha(label, qi)
@@ -868,6 +891,7 @@ function Fighter:DoAirBisha(label, qi)
 	self.state = S.BISHA
 	self.act.airHitTimes = 0
 	self:DoAction(label, true)
+	self:LogInput("KI", label)
 end
 
 -- Ghost step (FighterMcGhostHandler): dash with down (step / drop) or up (jump).
@@ -898,6 +922,7 @@ function Fighter:StartGhost(kind)
 	-- FighterEffectCtrl.ghostStep: blue afterimages, the black backdrop, only this fighter runs.
 	self.battle.fx:StartShadow(self, 0, 0, 255)
 	self.battle.fx:GhostStep(self)
+	self:LogInput(kind == 1 and "WL" or "SL")
 	return true
 end
 
@@ -952,6 +977,7 @@ function Fighter:DoWaiKai(label)
 	self.state = S.WANKAI
 	self:DoAction(label)
 	self.allowBeHit = false
+	self:LogInput(({["万解"] = "JK", ["万解W"] = "WJK", ["万解S"] = "SJK"})[label] or "JK", label)
 end
 
 -- Hurt (FighterMcHurtCtrl) ----------------------------------------------------------------
@@ -1249,6 +1275,7 @@ function Fighter:DoHurtDownJump()
 	self:UseEnergy(30)
 	local vx = self.vx
 	self:DoAction("起身")
+	self:LogInput("L", "起身", true)
 	self.allowBeHit = false
 	self.vx = vx
 	-- setDamping(vecx * 0.1) is signed: a negative speed is never damped.
@@ -1265,6 +1292,7 @@ function Fighter:RenderHurtBreak()
 	if self.currentHurtDamage > 210 then return end
 	self:UseQi(100)
 	self:UseEnergy(100)
+	self:LogInput("O", nil, true)
 	self.isHurting = false
 	if (self.char.comic_type or 0) == 1 then
 		-- FighterMain.replaceSkill: substitution 250 ahead, untouchable for 30 A.
