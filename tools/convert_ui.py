@@ -16,14 +16,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from convert_bvn import ROOT, lua_val  # noqa: E402
-from xfl import NS, Library, alpha_of, composite, lerp_m, matrix, mul, write_dat_sound  # noqa: E402
+from xfl import NS, Library, composite, lerp_m, matrix, mul, write_dat_sound  # noqa: E402
 
 UI = ROOT / "external" / "FlashSrc" / "SRC_XFL" / "ui"
+FACES = ROOT / "images" / "bvn" / "face"
 # Symbols exported per document, at a frame number, a frame label, or every frame ("all").
 EXPORTS = {
     "fight": {"$fight$MC_hpBar": "fadin_fin", "$fight$MC_qiBar": "fadin_fin", "$fight$MC_hits": 0, "$fight$MC_timeNumber": "all",
-              "$fight$MC_hitsNumer": "all", "$fight$MC_win": 0, "$fight$MC_fightUI": 0},
+              "$fight$MC_hitsNumer": "all", "$fight$MC_scoreNumber": "all", "$fight$MC_win": 0, "$fight$MC_fightUI": 0,
+              "$fight$SP_playerPos1": 0, "$fight$SP_playerPos2": 0},
 }
+# Timelines the HUD plays itself (fadin / fadout, the hit counter): per frame the
+# top-level named children's matrices and the static images, plus labels and stops.
+TRACKS = {"fight": ["$fight$MC_hpBar", "$fight$MC_qiBar", "$fight$MC_hits"]}
 # Whole symbols exported as flattened animations with their frame labels.
 ANIMS = {"fight": ["game_start_mc"]}
 # Named instances left out of the flattened animations.
@@ -42,6 +47,8 @@ class Exporter:
         shutil.rmtree(self.out, ignore_errors=True)
         self.out.mkdir(parents=True)
         self.seen = {}
+        self.shapes = {}
+        self.baked = {}
 
     def save(self, im):
         key = hashlib.sha1(im.tobytes() + bytes(str(im.size), "ascii")).hexdigest()
@@ -51,13 +58,14 @@ class Exporter:
             self.seen[key] = name
         return "bvn/ui/%s/%s" % (self.doc, self.seen[key])
 
-    def tree(self, sym, t, depth=0):
+    def tree(self, sym, t, depth=0, shallow=False):
+        """Parts of frame t. shallow: named children carry only their matrix (tracks)."""
         lib = self.lib
         parts, batch = [], []
 
         def flush():
             if batch:
-                im, x0, y0 = composite(batch)
+                im, x0, y0 = composite(self.baked_items(batch))
                 if im is not None and im.getbbox():
                     bb = im.getbbox()
                     parts.append({"img": self.save(im.crop(bb)), "x": x0 + bb[0], "y": y0 + bb[1]})
@@ -70,65 +78,178 @@ class Exporter:
                 nxt = frames[k + 1] if k + 1 < len(frames) else None
                 tween = fr.get("tweenType") == "motion" and nxt is not None and dur > 0
                 els = lib.elements(fr)
+                nels = lib.elements(nxt[2]) if tween else []
                 for i, el in enumerate(els):
-                    em = matrix(el)
-                    if tween:
-                        nels = lib.elements(nxt[2])
-                        if i < len(nels):
-                            em = lerp_m(em, matrix(nels[i]), (t - idx) / dur)
+                    em, ect = matrix(el), color_of(el)
+                    if tween and i < len(nels):
+                        f = (t - idx) / dur
+                        em = lerp_m(em, matrix(nels[i]), f)
+                        ect = ct_lerp(ect, color_of(nels[i]), f)
                     name = el.get("name")
                     child = el.get("libraryItemName")
                     if name and el.tag == NS + "DOMSymbolInstance" and child in lib.symbols and depth < 6:
                         flush()
-                        node = {"name": name, "m": [round(v, 4) for v in em], "alpha": alpha_of(el)}
-                        n = lib.length(child)
-                        settled = self.label(child, "fadin_fin")
-                        if child in MULTI or (settled is None and 1 < n <= 12):
-                            node["frames"] = [self.tree(child, f, depth + 1) for f in range(n)]
-                        else:
-                            node["parts"] = self.tree(child, settled or 0, depth + 1)
+                        node = {"name": name, "m": [round(v, 4) for v in em], "alpha": round(ect[3], 3)}
+                        if not shallow:
+                            n = lib.length(child)
+                            settled = self.label(child, "fadin_fin")
+                            if child in MULTI or (settled is None and 1 < n <= 12):
+                                node["frames"] = [self.tree(child, f, depth + 1) for f in range(n)]
+                            else:
+                                node["parts"] = self.tree(child, settled or 0, depth + 1)
                         parts.append(node)
                     else:
                         # Static content: flatten into the current image batch.
-                        tmp = {"tag": el.tag}
-                        batch.extend(self.flatten(el, em, t - idx))
+                        batch.extend(self.element(el, em, ect, t - idx))
                 break
         flush()
         return parts
 
     def label(self, sym, name):
-        for layer in self.lib.layers_all(sym):
+        for layer in layers_all(self.lib, sym):
             for idx, _, fr in layer:
                 if fr.get("name") == name:
                     return idx
         return None
 
-    def flatten(self, el, m, rel):
+    def baked_items(self, items):
+        """(image, matrix, colour transform) -> (image with its RGB transform baked, matrix, alpha)."""
+        out = []
+        for img, m, ct in items:
+            if not ct_rgb_identity(ct):
+                key = (id(img), tuple(round(v, 3) for v in ct[:3] + ct[4:7]))
+                if key not in self.baked:
+                    self.baked[key] = bake_color(img, ct)
+                img = self.baked[key]
+            out.append((img, m, max(0.0, min(1.0, ct[3] + ct[7] / 255))))
+        return out
+
+    def element(self, el, m, ct, rel, depth=0):
+        """Draw items (image, matrix, colour transform) of one element: bitmaps,
+        bitmap-filled and solid / gradient vector shapes, nested symbols."""
         lib = self.lib
         tag = el.tag[len(NS):]
-        a = alpha_of(el)
         if tag == "DOMBitmapInstance":
             img = lib.image(el.get("libraryItemName"))
-            return [(img, m, a)] if img is not None else []
+            return [(img, m, ct)] if img is not None else []
         if tag == "DOMShape":
             fill = el.find(".//" + NS + "BitmapFill")
             if fill is not None:
                 img = lib.image(fill.get("bitmapPath"))
                 fm = matrix(fill)
                 fm = (fm[0] / 20, fm[1] / 20, fm[2] / 20, fm[3] / 20, fm[4], fm[5])
-                return [(img, mul(m, fm), a)] if img is not None else []
-            return []
+                return [(img, mul(m, fm), ct)] if img is not None else []
+            if id(el) not in self.shapes:
+                self.shapes[id(el)] = raster_shape(el)
+            r = self.shapes[id(el)]
+            if r is None:
+                return []
+            img, x0, y0 = r
+            return [(img, mul(m, (1, 0, 0, 1, x0, y0)), ct)]
         child = el.get("libraryItemName")
-        if child not in lib.symbols:
+        if tag != "DOMSymbolInstance" or child not in lib.symbols or depth > 12:
             return []
         n = lib.length(child)
         first = int(el.get("firstFrame", 0))
         loop = el.get("loop", "loop")
         if el.get("symbolType") == "graphic":
-            ct = first if loop == "single frame" else (min(n - 1, first + rel) if loop == "play once" else (first + rel) % n)
+            t = first if loop == "single frame" else (min(n - 1, first + rel) if loop == "play once" else (first + rel) % n)
         else:
-            ct = 0
-        return lib.draw_list(child, ct, m, a)
+            t = 0
+        out = []
+        for frames in reversed(lib.layers(child)):
+            for k, (idx, dur, fr) in enumerate(frames):
+                if not (idx <= t < idx + dur):
+                    continue
+                nxt = frames[k + 1] if k + 1 < len(frames) else None
+                tween = fr.get("tweenType") == "motion" and nxt is not None and dur > 0
+                nels = lib.elements(nxt[2]) if tween else []
+                for i, e in enumerate(lib.elements(fr)):
+                    em, ect = matrix(e), color_of(e)
+                    if tween and i < len(nels):
+                        f = (t - idx) / dur
+                        em = lerp_m(em, matrix(nels[i]), f)
+                        ect = ct_lerp(ect, color_of(nels[i]), f)
+                    out += self.element(e, mul(m, em), ct_mul(ect, ct), t - idx, depth + 1)
+                break
+        return out
+
+    def track(self, sym):
+        """Every frame of sym, named children shallow, with labels, stop() frames
+        and gotoAndStop(n) jumps (frame numbers 1-based)."""
+        n = self.lib.length(sym)
+        frames = [self.tree(sym, t, shallow=True) for t in range(n)]
+        labels, stops, gotos = {}, [], {}
+        for layer in layers_all(self.lib, sym):
+            for idx, _, fr in layer:
+                nm = fr.get("name")
+                if nm and fr.get("labelType", "name") == "name":
+                    labels.setdefault(nm, idx + 1)
+                sc = fr.find(NS + "Actionscript")
+                src = "".join(sc.itertext()) if sc is not None else ""
+                if "stop()" in src:
+                    stops.append(idx + 1)
+                g = re.search(r"gotoAndStop\((\d+)\)", src)
+                if g:
+                    gotos[idx + 1] = int(g.group(1))
+        return {"frames": frames, "labels": labels, "stops": sorted(set(stops)), "gotos": gotos}
+
+    def mask_of(self, sym):
+        """The first mask layer's shape of sym as (alpha image, x0, y0)."""
+        tl = self.lib.symbols[sym].find(NS + "timeline").find(NS + "DOMTimeline")
+        for layer in tl.find(NS + "layers").findall(NS + "DOMLayer"):
+            if layer.get("layerType") == "mask":
+                for sh in layer.iter(NS + "DOMShape"):
+                    r = raster_shape(sh)
+                    if r:
+                        return r
+        return None
+
+
+def masked_faces(ex):
+    """Fighter faces as the fight HUD shows them: AssetManager sizes (face bar
+    102x64, assist face 50x50) cut by the face holders' mask layers, which the
+    engine cannot apply at run time. Returns {face file: image}."""
+    from PIL import Image as _I
+    out_dir = ROOT / "images" / "bvn" / "ui" / "hudface"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    faces = {}
+    if not FACES.exists():
+        print("[ui] no faces in %s; run tools/convert_maps.py first for masked HUD faces" % FACES)
+        return faces
+    specs = [("#链接/MC_hpBarFace", (102, 64), lambda n: n.endswith("_m.png")),
+             ("#链接/MC_qiBarFace", (50, 50), lambda n: not re.search(r"_(b|m|w)\.png$", n))]
+    for sym, size, pick in specs:
+        r = ex.mask_of(sym)
+        if r is None:
+            continue
+        mimg, mx, my = r
+        mask = _I.new("L", size, 0)
+        mask.paste(mimg.getchannel("A"), (mx, my))
+        for f in sorted(FACES.glob("*.png")):
+            if not pick(f.name):
+                continue
+            im = _I.open(f).convert("RGBA").resize(size, _I.BILINEAR)
+            a = _I.composite(im.getchannel("A"), _I.new("L", size, 0), mask)
+            im.putalpha(a)
+            im.save(out_dir / f.name, optimize=True)
+            faces[f.name] = "bvn/ui/hudface/" + f.name
+    return faces
+
+
+def fz_slices(ex):
+    """QiBar's InsFzBar: barmc (qbar_bar.png, flipped twice) shown through a
+    scrollRect of height process * 45 from the bottom. Slice k is the image's
+    bottom k rows, drawn k rows above the bar's bottom."""
+    img = ex.lib.image("qbar_bar.png")
+    if img is None:
+        return None
+    w, h = img.size
+    slices = []
+    for k in range(1, h + 1):
+        slices.append({"img": ex.save(img.crop((0, h - k, w, h))), "y": h - k})
+    return {"h": h, "slices": slices}
 
 
 def main():
@@ -145,9 +266,19 @@ def main():
                 data[cls] = {"frames": [ex.tree(sym, f) for f in range(n)]}
             else:
                 if isinstance(frame, str):
-                    frame = next((idx for layer in ex.lib.layers_all(sym) for idx, _, fr in layer if fr.get("name") == frame), 0)
+                    frame = ex.label(sym, frame) or 0
                 data[cls] = {"parts": ex.tree(sym, n - 1 if frame == -1 else frame)}
             print("[ui] %s %s: %d frames" % (doc, cls, n), flush=True)
+        tracks = data.setdefault("tracks", {})
+        for cls in TRACKS.get(doc, []):
+            sym = ex.lib.linkage.get(cls)
+            if sym:
+                tracks[cls] = ex.track(sym)
+                print("[ui] %s track %s: %d frames" % (doc, cls, len(tracks[cls]["frames"])), flush=True)
+        if doc == "fight":
+            data["fzbar"] = fz_slices(ex)
+            data["hudfaces"] = masked_faces(ex)
+            print("[ui] fight: %d masked HUD faces" % len(data["hudfaces"]), flush=True)
     anims = {}
     for doc, syms in ANIMS.items():
         ex = Exporter(doc + "_anim")
@@ -162,6 +293,8 @@ def main():
             def render_all():
                 frames = []
                 for t in range(n):
+                    if digit:
+                        ex.lib.frame_override = {"nummc": digit(t)}
                     im, x0, y0 = composite(ex.lib.draw_list(sym, t, (1, 0, 0, 1, 0, 0), 1.0))
                     if im is None or not im.getbbox():
                         frames.append({})
@@ -169,15 +302,34 @@ def main():
                     bb = im.getbbox()
                     frames.append({"img": ex.save(im.crop(bb)), "x": x0 + bb[0], "y": y0 + bb[1]})
                 return frames
-            # The round banner's digit (nummc) is set by script from $round.
+            # The round banner's digit: frames 26 and 27 call nummc.gotoAndPlay("r" + $round);
+            # the clip then plays at the 60 fps stage rate (two of its frames per
+            # banner frame, which renderAnimate steps at 30 fps) up to its next stop().
+            digit = None
             rounds = []
+            marks = {}
+            if "round_num_mc" in ex.lib.symbols:
+                for layer in layers_all(ex.lib, "round_num_mc"):
+                    for idx, _, fr in layer:
+                        if fr.get("name"):
+                            marks[fr.get("name")] = idx
+                        sc = fr.find(NS + "Actionscript")
+                        if sc is not None and "stop()" in "".join(sc.itertext()):
+                            marks.setdefault("stops", []).append(idx)
             for r in range(1, 6):
-                ex.lib.frame_override = {"nummc": r - 1}
+                lab = marks.get("r%d" % r)
+                if lab is None:
+                    digit = None
+                    ex.lib.frame_override = {"nummc": r - 1}
+                else:
+                    stop = min([i for i in marks.get("stops", []) if i > lab] or [lab])
+                    digit = (lambda lab, stop: lambda t: min(stop, lab + max(0, t - 27) * 2))(lab, stop)
                 rounds.append(render_all())
+            digit = None
             ex.lib.frame_override = {}
             frames = rounds[0]
             labels = {}
-            for layer in ex.lib.layers_all(sym):
+            for layer in layers_all(ex.lib, sym):
                 for idx, _, fr in layer:
                     nm = fr.get("name")
                     if nm and fr.get("labelType", "name") == "name" and nm not in labels:
@@ -208,7 +360,7 @@ def winner_anim(ex):
         bb = im.getbbox()
         frames.append({"img": ex.save(im.crop(bb)), "x": x0 + bb[0], "y": y0 + bb[1]})
     labels, stop = {}, n
-    for layer in lib.layers_all(sym):
+    for layer in layers_all(lib, sym):
         for idx, _, fr in layer:
             nm = fr.get("name")
             if nm and fr.get("labelType", "name") == "name":

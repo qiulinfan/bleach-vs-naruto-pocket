@@ -1,93 +1,15 @@
--- The original fight HUD (5DPLAY's MC_fightUI) drawn from BVNUIData part
--- trees, driven like FightUI / FightBar / QiBar: bar scales, digits, faces.
+-- The original fight HUD, 5DPLAY's FightUI ($fight$MC_fightUI): FightBar (HP bars
+-- with HpBarLerp, energy bars, faces, time, wins, score), QiBar x2, HitsUI x2, the
+-- 1P / 2P markers, TrainingInputHistoryUI and the start / KO / winner banners.
+-- Parts come from BVNUIData (tools/convert_ui.py); BVNHudParts draws them.
+-- The battle calls Draw every frame and StepBanner every game tick (FightUI.render,
+-- and renderAnimate on every second tick). State lives in battle.hud, which lasts
+-- the whole match like the original's FightUI (bars ease between rounds).
 -- The 800x600 stage maps to the window at 1.2x, centred. Not attached to any actor.
 local SCALE, OX = 1.2, 160
+local P = setmetatable({}, {__index = function(_, k) return BVNHudParts[k] end})
 
-local sizes = {}
-local function size(img)
-	local s = sizes[img]
-	if not s then
-		local v = Image.GetSize(img)
-		s = {v.x, v.y}
-		sizes[img] = s
-	end
-	return s
-end
-
--- Horizontal extent of a part tree in its own coordinates.
-local function extent(parts)
-	local x0, x1 = math.huge, -math.huge
-	for _, p in ipairs(parts) do
-		if p.img then
-			x0, x1 = math.min(x0, p.x), math.max(x1, p.x + size(p.img)[1])
-		else
-			local sub = p.parts or (p.frames and p.frames[1])
-			if sub then
-				local a0, a1 = extent(sub)
-				if a0 < a1 then
-					local m = p.m
-					local u, v = m[5] + m[1] * a0, m[5] + m[1] * a1
-					x0, x1 = math.min(x0, u, v), math.max(x1, u, v)
-				end
-			end
-		end
-	end
-	return x0, x1
-end
-
--- Draws a part tree under a scale+translate transform (a, d, tx, ty).
-local function draw(parts, a, d, tx, ty, ov, path, alpha, order)
-	for _, p in ipairs(parts) do
-		if p.img then
-			local w, h = size(p.img)[1], size(p.img)[2]
-			local x0, x1 = tx + a * p.x, tx + a * (p.x + w)
-			local y0, y1 = ty + d * p.y, ty + d * (p.y + h)
-			Image.DrawUIScaled(p.img, math.min(x0, x1), math.min(y0, y1), a, d, 255, 255, 255, alpha, order)
-		else
-			local key = path .. p.name
-			local o = ov[key]
-			if not (o and o.hide) then
-				local m = p.m
-				local ca, cd = a * m[1], d * m[4]
-				local ctx, cty = tx + a * m[5], ty + d * m[6]
-				if o and o.sx then ca = ca * o.sx end
-				local al = alpha * (p.alpha or 1)
-				if o and o.draw then o.draw(ca, cd, ctx, cty, al, order) end
-				local sub = p.parts
-				if p.frames then sub = p.frames[math.max(1, math.min(#p.frames, (o and o.frame) or 1))] end
-				if o and o.unflip and sub then
-					-- Mirror back around the content's centre (text inside a mirrored bar).
-					local x0, x1 = extent(sub)
-					ctx, ca = ctx + ca * (x0 + x1), -ca
-				end
-				if sub and not (o and o.only) then draw(sub, ca, cd, ctx, cty, ov, key .. "/", al, order) end
-			end
-		end
-	end
-end
-
--- Digits from a multi-frame number symbol (frame n+1 shows digit n).
-local function digits(sym, n, count, gap)
-	local frames = BVNUIData[sym] and BVNUIData[sym].frames
-	return function(a, d, tx, ty, al, order)
-		if not frames then return end
-		local s = string.format("%0" .. count .. "d", math.max(0, n))
-		for i = 1, #s do
-			local fr = frames[tonumber(s:sub(i, i)) + 1]
-			if fr then draw(fr, a, d, tx + a * (i - 1) * gap, ty, {}, "", al, order) end
-		end
-	end
-end
-
-local function image(img, ox, oy, w)
-	return function(a, d, tx, ty, al, order)
-		if not img then return end
-		local s = size(img)
-		local k = w and (w / s[1]) or 1
-		local x0, x1 = tx + a * ox, tx + a * (ox + s[1] * k)
-		Image.DrawUIScaled(img, math.min(x0, x1), ty + d * oy, a * k, d * k, 255, 255, 255, al, order)
-	end
-end
+local ORDER_LOW, ORDER_BANNER, ORDER_BAR, ORDER_TOP, ORDER_MARK = 12, 13, 16, 17, 18
 
 local function findNode(parts, name)
 	for _, p in ipairs(parts) do
@@ -96,9 +18,248 @@ local function findNode(parts, name)
 	return nil
 end
 
+local function trackOf(cls) return BVNUIData.tracks and BVNUIData.tracks[cls] end
+
+-- AS3 Number.toString for the HP text.
+local function numText(v)
+	if v == math.floor(v) then return string.format("%d", v) end
+	return string.format("%.15g", v)
+end
+
+-- GameMode.isSingleMode / isArcade from the battle's mode.
+local function isSingle(b)
+	local m = b.mode
+	return not b.teamMode and (m == "arcade" or m == "cpu" or m == "pvp" or m == "watch")
+end
+
+local function isArcade(b) return b.mode == "arcade" or b.mode == "survivor" or b.arcade == true end
+
+local function newHud(b)
+	local h = {tick = 0, barIn = false, barF = 1, barAnim = false, qi = {}, hp = {}, en = {}, hits = {}, wins = {{}, {}}}
+	for side = 1, 2 do
+		h.qi[side] = {fadIn = false, f = 1, anim = false, proc = 0, fz = 0, ready = true, readyT = 0,
+			moveType = 0, moveFin = true}
+		h.hp[side] = {bar = 1, red = 1, rate = 1, redMoving = false, delay = 0, justFly = false}
+		h.en[side] = {sx = 1, barF = 1, txtF = 1, overload = false, flash = false, int = 0, flashF = 2,
+			tint = 0, tflash = 2}
+		h.hits[side] = {f = 1, show = false, num = 0, last = 0}
+	end
+	if BVNHud.BITMAP_UI then
+		h.barF = trackOf("$fight$MC_hpBar") and trackOf("$fight$MC_hpBar").labels.fadin_fin or 1
+	end
+	if b.mode == "training" then
+		local H = BVNHudParts.History
+		h.history = {H.New(1, false), H.New(2, true)}
+	end
+	return h
+end
+
+local function hudOf(b)
+	local h = b.hud
+	if not h then
+		h = newHud(b)
+		b.hud = h
+	end
+	return h
+end
+
+-- FighterHpBar / HpBarLerp.render.
+local function renderHp(s, f)
+	local rate = f.hp / f.hpMax
+	if s.redMoving and rate ~= s.rate then
+		s.red = s.rate
+		s.redMoving = false
+	end
+	s.rate = rate
+	local diff = rate - s.bar
+	if math.abs(diff) < 0.01 then s.bar = rate else s.bar = s.bar + diff * (diff < 0 and 0.4 or 0.04) end
+	local st = f.state
+	if st == 21 then
+		s.delay = 100
+	elseif st == 22 or st == 23 then
+		if s.delay > 0 then
+			if not s.justFly then
+				s.delay = 90
+				s.justFly = true
+			elseif s.delay > 0 then
+				s.delay = s.delay - 1
+			end
+		end
+	else
+		s.delay = 0
+		s.justFly = false
+	end
+	if s.delay <= 0 then
+		local d2 = rate - s.red
+		if math.abs(d2) < 0.01 then
+			s.red = rate
+			s.redMoving = false
+		else
+			s.red = s.red + d2 * (d2 < 0 and 0.1 or 0.02)
+			s.redMoving = true
+		end
+	end
+end
+
+-- EnergyBar.render (EnergyBarFill + EnergyBarLabel).
+local function renderEnergy(s, f)
+	local rate = f.energy / f.energyMax
+	if f.overload then
+		if not s.overload then
+			s.overload, s.flash = true, false
+			s.barF, s.txtF = 2, 2
+		end
+	elseif rate < 0.3 then
+		if not s.flash then
+			s.flash, s.int, s.flashF, s.tint, s.tflash = true, 0, 2, 0, 2
+		end
+	elseif s.overload or s.flash then
+		s.overload, s.flash = false, false
+		s.barF, s.txtF = 1, 1
+	end
+	local diff = rate - s.sx
+	if math.abs(diff) < 0.01 then s.sx = rate else s.sx = s.sx + diff * 0.4 end
+	if s.flash then
+		s.int = s.int + 1
+		if s.int > 2 then
+			s.int = 0
+			s.barF = s.flashF
+			s.flashF = s.flashF == 1 and 2 or 1
+		end
+		s.tint = s.tint + 1
+		if s.tint > 2 then
+			s.tint = 0
+			s.txtF = s.tflash
+			s.tflash = s.tflash == 1 and 2 or 1
+		end
+	end
+end
+
+-- QiBar.render.
+local function renderQi(s, f)
+	local rate = math.min(3, f.qi / 100)
+	local diff = rate - s.proc
+	if math.abs(diff) < 0.01 then s.proc = rate else s.proc = s.proc + diff * 0.4 end
+	s.fz = f.fzqi / f.fzqiMax
+	local vis = s.fz >= 1
+	if s.ready ~= vis then
+		s.ready = vis
+		s.readyT = 0 -- mc.play() / mc.gotoAndStop(1)
+	end
+end
+
+-- QiBar.moving: eases toward (x, y, scale) at 0.5 per tick.
+local function moveQi(s, x, y, scale)
+	if math.abs(x - s.x) < 2 and math.abs(y - s.y) < 2 and math.abs(scale - s.scale) < 0.2 then
+		s.x, s.y, s.scale = x, y, scale
+		s.moveFin = true
+	end
+	s.x = s.x + (x - s.x) * 0.5
+	s.y = s.y + (y - s.y) * 0.5
+	s.scale = s.scale + (scale - s.scale) * 0.5
+end
+
+local function qiOrigin(side)
+	local n = findNode(BVNUIData["$fight$MC_fightUI"].parts, "fzqi" .. side)
+	return n.m[5], n.m[6]
+end
+
+-- HitsUI.show / hide.
+local function showHits(s, num)
+	s.num = num
+	local tr = trackOf("$fight$MC_hits")
+	if not tr then return end
+	s.f = s.show and tr.labels.update or tr.labels.fadin
+	s.show = true
+end
+
+local function hideHits(s)
+	if not s.show then return end
+	s.show = false
+	local tr = trackOf("$fight$MC_hits")
+	if tr then s.f = tr.labels.fadout end
+end
+
+-- FightBar.fadIn / fadOut and QiBar.fadIn / fadOut.
+local function fadeTo(h, b, inn, qiOnly)
+	local hb = trackOf("$fight$MC_hpBar")
+	local qb = trackOf("$fight$MC_qiBar")
+	if not qiOnly and h.barIn ~= inn then
+		h.barIn = inn
+		if not BVNHud.BITMAP_UI and hb then
+			h.barF, h.barAnim = hb.labels[inn and "fadin" or "fadout"], true
+		end
+	end
+	for side = 1, 2 do
+		local q = h.qi[side]
+		if q.fadIn ~= inn then
+			q.fadIn = inn
+			local top = inn and BVNHud.QI_BAR_MODE == 1
+			if top then
+				-- FightUI.fadIn in FightQiBarMode.TOP: no animation, moved up and scaled.
+				q.x, q.y, q.scale = side == 1 and 120 or 675, 60, 0.8
+			end
+			if not BVNHud.BITMAP_UI and qb then
+				if top then
+					q.f, q.anim = qb.labels.fadin_fin, false
+				else
+					q.f, q.anim = qb.labels[inn and "fadin" or "fadout"], true
+				end
+			end
+		end
+	end
+end
+
+-- Timeline steps of the fade animations (renderAnimate, 30 fps).
+local function animateFade(f, anim, tr)
+	if not anim or not tr then return f, false end
+	local fin = tr.labels.fadin_fin
+	local fout = tr.labels.fadout_fin
+	if f == fin or f == fout then return f, false end
+	return f + 1, true
+end
+
+-- FightUI.getPlayerPos: the fighter's stage position 50 px above its feet,
+-- clamped to the edges (the visible 16:9 width instead of the 800 px stage).
+-- The battle's drawn view (camera clamp and shake included) gives the screen position.
+local function playerPos(b, f)
+	local v = b.view
+	local x, y
+	if v then
+		x = ((f.x - v.x) * v.zoom - OX) / SCALE
+		y = ((f.y - 50 - v.y) * v.zoom) / SCALE
+	else
+		local c = b.cam
+		x, y = (f.x - c.rx) * c.ss, (f.y - 50 - c.ry) * c.ss
+	end
+	local left, right = -OX / SCALE, (1280 - OX) / SCALE
+	if x < left + 20 then x = left + 20 end
+	if x > right - 20 then x = right - 20 end
+	if y < 60 then y = 60 end
+	if y > 600 - 5 then x = 800 - 5 end -- sic: the original sets x here
+	return x, y
+end
+
 BVNHud = {
+	-- GameUI.BITMAP_UI (true in every 5DPLAY shell): FightBar and QiBar show and
+	-- hide at once; false plays their fadin / fadout timelines.
+	BITMAP_UI = true,
+	-- FightUI.QI_BAR_MODE: 0 AUTO (PC), 1 TOP (mobile: the qi bars sit under the HP bars).
+	QI_BAR_MODE = 0,
+
+	Available = function()
+		return BVNUIData ~= nil and BVNUIData["$fight$MC_fightUI"] ~= nil
+	end,
+
 	-- Start / KO banner (game_start_mc): play `label` up to the next label, on animate ticks.
+	-- FightUI.showStart fades the interface in; playKO / playTimeOver fade the qi bars out.
 	Banner = function(b, label, stopLabel, y)
+		local h = hudOf(b)
+		if label == "start" or label == "start_final" then
+			fadeTo(h, b, true)
+		elseif label == "ko" or label == "timeover" then
+			fadeTo(h, b, false, true)
+		end
 		local anim = BVNUIData and BVNUIData.anims and BVNUIData.anims.game_start_mc
 		if not anim then return end
 		local from = anim.labels[label]
@@ -108,9 +269,11 @@ BVNHud = {
 		b.banner = {anim = anim, frames = frames, f = from, to = to, y = y or 0, tick = 0}
 	end,
 
+	-- Every game tick: FightUI.render, the banner and renderAnimate on every second tick.
 	StepBanner = function(b)
+		BVNHud.Render(b)
 		local w = b.winnerShow
-		if w and w.f < w.last then w.f = w.f + 0.5 end
+		if w and w.f < w.last then w.f = w.f + 1 end
 		local bn = b.banner
 		if not bn then return end
 		bn.tick = bn.tick + 1
@@ -122,25 +285,92 @@ BVNHud = {
 		return bn and bn.anim.labels[label] and bn.f >= bn.anim.labels[label]
 	end,
 
-	DrawBanner = function(b)
-		local node = findNode(BVNUIData["$fight$MC_fightUI"].parts, "startKOmc")
-		local nx = node and node.m[5] or 400
-		local ox, oy = OX + (BVNHud.shakeX or 0) * SCALE, (BVNHud.shakeY or 0) * SCALE
-		local bn = b.banner
-		local fr = bn and bn.frames[bn.f]
-		if fr and fr.img then
-			Image.DrawUIScaled(fr.img, ox + (nx + fr.x) * SCALE, oy + (bn.y + fr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255, 30)
+	-- FightUI.render (+ the clips that play by themselves at the 60 fps stage rate).
+	Render = function(b)
+		if not BVNHud.Available() then return end
+		local h = hudOf(b)
+		h.tick = h.tick + 1
+		-- GameCtrl: training fades in at once; GameStartCtrl.skip fades in too.
+		if not h.barIn and (b.mode == "training" or b.phase ~= "intro") then fadeTo(h, b, true) end
+		for side = 1, 2 do
+			local f = b.fighters[side]
+			if f then
+				renderHp(h.hp[side], f)
+				renderEnergy(h.en[side], f)
+				local q = h.qi[side]
+				renderQi(q, f)
+				q.readyT = q.readyT + 1
+				if q.moveTo then
+					moveQi(q, q.moveTo[1], q.moveTo[2], q.moveTo[3])
+					if q.moveFin then q.moveTo = nil end
+				end
+				-- HitsUI: shown from the second hit of a combo, hidden when the target recovers.
+				local hs = h.hits[side]
+				local tr = trackOf("$fight$MC_hits")
+				if tr then hs.f = P.StepClip(tr, hs.f) end
+				local combo = f.combo or 0
+				if combo < hs.last then hideHits(hs) end
+				if combo > hs.last and combo > 1 then showHits(hs, combo) end
+				hs.last = combo
+				if h.history then BVNHudParts.History.Render(h.history[side], b, f) end
+			end
+			for _, w in ipairs(h.wins[side]) do
+				local tr = w.track
+				if not tr.stop[w.f] then w.f = math.min(w.f + 1, tr.n) end
+			end
 		end
-		-- FightUI.showWinner: winnermc at $winnerX / $winnerY inside startKOmc (y 30).
-		local w = b.winnerShow
-		local wfr = w and w.anim.frames[math.floor(w.f)]
-		if wfr and wfr.img then
-			Image.DrawUIScaled(wfr.img, ox + (nx + w.x + wfr.x) * SCALE, oy + (30 + 90 + wfr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255, 30)
+		-- renderAnimate (GameUI: every second game tick).
+		if h.tick % 2 == 0 then
+			local moving
+			h.barF, moving = animateFade(h.barF, h.barAnim, trackOf("$fight$MC_hpBar"))
+			h.barAnim = moving
+			for side = 1, 2 do
+				local q = h.qi[side]
+				q.f, moving = animateFade(q.f, q.anim, trackOf("$fight$MC_qiBar"))
+				q.anim = moving
+			end
 		end
 	end,
 
+	-- QiBar.moveTo / moveResume (FightUI.renderQibarPos, unused by the original's render).
+	QiMoveTo = function(b, side, x, y, scale)
+		local q = hudOf(b).qi[side]
+		if not q.x then q.x, q.y = qiOrigin(side); q.scale = 1 end
+		if q.moveType ~= 1 then q.moveType, q.moveFin = 1, false elseif q.moveFin then return end
+		q.moveTo = {x, y, scale}
+	end,
+
+	QiMoveResume = function(b, side)
+		local q = hudOf(b).qi[side]
+		if not q.x then return end
+		if q.moveType ~= 0 then q.moveType, q.moveFin = 0, false elseif q.moveFin then return end
+		local x, y = qiOrigin(side)
+		q.moveTo = {x, y, 1}
+	end,
+
+	-- FightUI.showWinner, then (single modes) FightBar.showWin: the round's win mark,
+	-- the winner's comic (bleach / naruto) icon flashing in.
 	ShowWinner = function(b, winner)
 		b.winsShown = {b.wins[1], b.wins[2]}
+		local h = hudOf(b)
+		if isSingle(b) then
+			local side = winner.side
+			local wins = b.wins[side]
+			if wins >= 1 and wins <= 2 then
+				local slot = (side == 1) == (wins == 1) and "w1" or "w2"
+				local comic = winner.char and winner.char.comic_type or 0
+				local node = findNode(findNode(findNode(BVNUIData["$fight$MC_fightUI"].parts, "hpbarmc").parts,
+					"win_p" .. side).parts, slot)
+				if node and node.frames then
+					-- winmc_bleach: in_bleach at 10, in_naruto at 30, stop() on 20 and 40.
+					local tr = {n = #node.frames, stop = {[1] = true, [20] = true, [40] = true}}
+					for i = #h.wins[side], 1, -1 do
+						if h.wins[side][i].slot == slot then table.remove(h.wins[side], i) end
+					end
+					h.wins[side][#h.wins[side] + 1] = {slot = slot, f = comic == 1 and 30 or 10, track = tr}
+				end
+			end
+		end
 		local anim = BVNUIData and BVNUIData.anims and BVNUIData.anims.winnermc
 		if not anim then return end
 		local perfect = winner.hp >= winner.hpMax
@@ -153,70 +383,231 @@ BVNHud = {
 		b.banner = nil
 	end,
 
-	Available = function()
-		return BVNUIData ~= nil and BVNUIData["$fight$MC_fightUI"] ~= nil
+	-- startKOmc: the banner and winnermc at $winnerX / $winnerY (y 30 + 90).
+	DrawBanner = function(b)
+		local node = findNode(BVNUIData["$fight$MC_fightUI"].parts, "startKOmc")
+		local nx = node and node.m[5] or 400
+		local ox, oy = OX + (BVNHud.shakeX or 0) * SCALE, (BVNHud.shakeY or 0) * SCALE
+		local bn = b.banner
+		local fr = bn and bn.frames[bn.f]
+		if fr and fr.img then
+			Image.DrawUIScaled(fr.img, ox + (nx + fr.x) * SCALE, oy + (bn.y + fr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255,
+				ORDER_BANNER)
+		end
+		local w = b.winnerShow
+		local wfr = w and w.anim.frames[math.floor(w.f)]
+		if wfr and wfr.img then
+			Image.DrawUIScaled(wfr.img, ox + (nx + w.x + wfr.x) * SCALE, oy + (30 + 90 + wfr.y) * SCALE, SCALE, SCALE,
+				255, 255, 255, 255, ORDER_BANNER)
+		end
 	end,
 
 	Draw = function(b)
+		if not BVNHud.Available() then return end
+		local h = hudOf(b)
 		local root = BVNUIData["$fight$MC_fightUI"].parts
-		local ov = {["hpbarmc/scoremc"] = {hide = true}, ["startKOmc"] = {hide = true}}
-		for side = 1, 2 do
-			local f = b.fighters[side]
-			local bar, en, face, win, qi = "hpbarmc/bar" .. side, "hpbarmc/energy" .. side, "hpbarmc/face" .. side,
-				"hpbarmc/win_p" .. side, "fzqi" .. side
-			f.hpShow = f.hpShow or f.hp
-			if f.hpShow > f.hp then f.hpShow = math.max(f.hp, f.hpShow - f.hpMax * 0.004) else f.hpShow = f.hp end
-			ov[bar .. "/bar"] = {sx = math.max(0, f.hp / f.hpMax)}
-			ov[bar .. "/redbar"] = {sx = math.max(0, f.hpShow / f.hpMax)}
-			ov[en .. "/barmc/bar"] = {sx = math.max(0, f.energy / f.energyMax)}
-			ov[en .. "/txtmc"] = {frame = (f.char.comic_type or 0) + 1, unflip = side == 2}
-			local fb = f.info.urls.face_bar and ("bvn/face/" .. f.info.urls.face_bar)
-			ov[face .. "/face/ct"] = {draw = image(fb, 0, 0)}
-			-- Team members still to come (FightFaceGroup).
-			local team = b.opts["p" .. side].team or {}
-			for k = 2, 3 do
-				local id = team[(b.teamIndex and b.teamIndex[side] or 1) + k - 1]
-				local mi = id and BVNMenu.FighterInfo(id)
-				if mi and mi.urls.face_bar then
-					ov[face .. "/face" .. k .. "/ct"] = {draw = image("bvn/face/" .. mi.urls.face_bar, 0, 0)}
+		local tx, ty = OX + (BVNHud.shakeX or 0) * SCALE, (BVNHud.shakeY or 0) * SCALE
+		local hbNode = findNode(root, "hpbarmc")
+		local ov = {}
+		local faceOf = BVNUIData.hudfaces or {}
+		local function faceImage(file, w, hh)
+			if not file then return nil end
+			local masked = faceOf[file]
+			return function(a, d, x, y, al, order)
+				if masked then
+					P.Image(masked, a, d, x, y, 0, 0, al, order)
 				else
-					ov[face .. "/face" .. k] = {hide = true}
+					local s = P.Size("bvn/face/" .. file)
+					P.Image("bvn/face/" .. file, a * w / s[1], d * hh / s[2], x, y, 0, 0, al, order)
 				end
 			end
-			local wins = (b.winsShown or b.wins)[side]
-			for i = 1, 2 do
-				ov[win .. "/w" .. i] = wins >= i and {frame = 999} or {hide = true}
-			end
-			local bars = math.floor(f.qi / 100)
-			ov[qi .. "/barmc/bar"] = {sx = f.qi >= f.qiMax and 1 or (f.qi % 100) / 100}
-			ov[qi .. "/barmc/txtmc"] = {frame = bars + 1}
-			ov[qi .. "/fzqibar/barmc"] = {sx = f.assist and f.fzqi / f.fzqiMax or 0}
-			local af = f.assistInfo and ("bvn/face/" .. f.assistInfo.urls.face)
-			ov[qi .. "/facemc/ct"] = {draw = image(af, 0, 0, 34)}
-			if not f.assist or f.fzqi < 100 then ov[qi .. "/readymc"] = {hide = true} end
-			local hits = "hits" .. side
-			if f.combo >= 2 then
-				ov[hits .. "/ct"] = {draw = digits("$fight$MC_hitsNumer", f.combo, f.combo >= 10 and 2 or 1, 26)}
-			else
-				ov[hits] = {hide = true}
-			end
 		end
-		if b.time >= 0 then
-			ov["hpbarmc/timemc/wuxian"] = {hide = true}
-			ov["hpbarmc/timemc"] = {draw = function(a, d, tx, ty, al, order)
-				digits("$fight$MC_timeNumber", b.time, 2, 20)(a, d, tx + a * -22, ty + d * -15, al, order + 1)
-			end}
-		end
-		if b.ko then ov["fzqi1"], ov["fzqi2"] = {hide = true}, {hide = true} end
-		draw(root, SCALE, SCALE, OX + (BVNHud.shakeX or 0) * SCALE, (BVNHud.shakeY or 0) * SCALE, ov, "", 255, 10)
-		BVNHud.DrawBanner(b)
-		-- Names under the bars (the original shows them on the select screen only).
+
+		-- QiBar x2 and HitsUI x2 (under the FightBar and the banner).
+		local qtr = trackOf("$fight$MC_qiBar")
+		local htr = trackOf("$fight$MC_hits")
 		for side = 1, 2 do
 			local f = b.fighters[side]
-			local name = f.info.name
-			local w = BVNDraw.TextWidth(name, 18)
-			local x = side == 1 and (OX + 70 * SCALE) or (OX + (800 - 70) * SCALE - w)
-			BVNDraw.Text(name, x, 66 * SCALE, 18, {255, 255, 255})
+			local q = h.qi[side]
+			local qi = "fzqi" .. side
+			local node = findNode(root, qi)
+			if not q.fadIn and (BVNHud.BITMAP_UI or not q.anim) then
+				ov[qi] = {hide = true}
+			else
+				local o = {}
+				if q.x then
+					local sg = node.m[1] < 0 and -1 or 1
+					o.m = {sg * q.scale, 0, 0, q.scale, q.x, q.y}
+				end
+				ov[qi] = o
+				if not BVNHud.BITMAP_UI and qtr then
+					-- The fade timeline replaces the settled layout.
+					local frame = P.TrackFrame(qtr, q.f, node.parts)
+					o.only = true
+					o.draw = function(a, d, x, y, al, order)
+						P.Draw(frame, a, d, x, y, ov, qi .. "/", al, order)
+					end
+				end
+			end
+			-- InsBar.setProcess: bar1..bar3 scale, bar4 (blinking clip) at a full bar, the level digit.
+			local v = q.proc
+			local g = qi .. "/barmc/bar/"
+			ov[g .. "bar1"] = v > 0 and {sx = v > 1 and 1 or v} or {hide = true}
+			ov[g .. "bar2"] = v > 1 and {sx = v > 2 and 1 or (v - 1)} or {hide = true}
+			ov[g .. "bar3"] = v > 2 and {sx = v - 2} or {hide = true}
+			ov[g .. "bar4"] = (v >= 3 and h.tick % 14 < 7) and {} or {hide = true}
+			ov[qi .. "/barmc/txtmc"] = {frame = math.floor(v) + 1, sx = side == 2 and -1 or nil}
+			-- InsFzBar: the bar seen through a scrollRect growing from the bottom.
+			local fz = BVNUIData.fzbar
+			ov[qi .. "/fzqibar/barmc"] = {only = true, draw = function(a, d, x, y, al, order)
+				if not fz then return end
+				local k = math.floor(math.max(0, math.min(1, q.fz)) * fz.h)
+				local sl = fz.slices[k]
+				-- barmc.y = barmc.height once scrollRect is set: the bar's top sits at y 0, not 0.8.
+				if sl then P.Image(sl.img, a, d, x, y - d * 0.8, 0, sl.y, al, order) end
+			end}
+			local ai = f and f.assistInfo
+			ov[qi .. "/facemc/ct"] = {only = true, draw = faceImage(ai and ai.urls and ai.urls.face, 50, 50)}
+			-- readymc: shown at a full assist bar; its mc blinks (14 frames on, 6 off).
+			if not q.ready then
+				ov[qi .. "/readymc"] = {hide = true}
+			else
+				ov[qi .. "/readymc/mc"] = {sx = side == 2 and -1 or nil, hide = (q.readyT % 20) >= 14}
+			end
+
+			-- HitsUI.
+			local hs = h.hits[side]
+			local hits = "hits" .. side
+			local hnode = findNode(root, hits)
+			if not htr or hs.f == 1 then
+				ov[hits] = {hide = true}
+			else
+				local s = P.NumberText(hs.num)
+				local x0, x1 = P.NumberBounds("$fight$MC_hitsNumer", s, 35)
+				local xoff = -(x1 - x0) + 45
+				local frame = P.TrackFrame(htr, hs.f, hnode.parts)
+				ov[hits] = {only = true, dx = side == 1 and -xoff or 0, draw = function(a, d, x, y, al, order)
+					P.Draw(frame, a, d, x, y, ov, hits .. "/", al, order)
+				end}
+				ov[hits .. "/ct"] = {only = true, draw = function(a, d, x, y, al, order)
+					P.Digits("$fight$MC_hitsNumer", s, 35, a, d, x + a * xoff, y, al, order)
+				end}
+			end
+		end
+		ov.hpbarmc, ov.startKOmc = {hide = true}, {hide = true}
+		P.Draw(root, SCALE, SCALE, tx, ty, ov, "", 255, ORDER_LOW)
+
+		BVNHud.DrawBanner(b)
+
+		-- FightBar.
+		local hb = "hpbarmc/"
+		local hov = {}
+		local hpTexts = {}
+		for side = 1, 2 do
+			local f = b.fighters[side]
+			if f then
+				local bar, en, face = "bar" .. side, "energy" .. side, "face" .. side
+				local hs = h.hp[side]
+				hov[bar .. "/bar"] = {sx = math.max(0, hs.bar)}
+				hov[bar .. "/redbar"] = {sx = math.max(0, hs.red)}
+				if BVNSettings and BVNSettings.showHp then
+					-- FighterHpBar: HP at (120, 2) and the current combo's damage at (10, 2)
+					-- (x 40 mirrored on the right bar), white / yellow Arial with a drop shadow.
+					hov[bar] = {after = function(a, d, x, y)
+						local dmg = f.currentHurtDamage or 0
+						if type(dmg) == "function" then dmg = dmg(f) end
+						local sg = a < 0 and -1 or 1
+						hpTexts[#hpTexts + 1] = {numText(f.hp), x + a * 120, y + d * 2, {255, 255, 255}}
+						if dmg > 0 then
+							hpTexts[#hpTexts + 1] = {"-" .. numText(dmg), x + a * (sg < 0 and 40 or 10), y + d * 2, {255, 255, 0}}
+						end
+					end}
+				end
+				local es = h.en[side]
+				hov[en .. "/barmc/bar"] = {sx = math.max(0, es.sx), frame = es.barF}
+				hov[en .. "/txtmc"] = {frame = (f.char and f.char.comic_type == 1) and 2 or 1, sx = side == 2 and -1 or nil}
+				hov[en .. "/txtmc/mc"] = {frame = es.txtF}
+				-- FightFaceGroup: the current fighter, then the team members still to come.
+				hov[face .. "/face/ct"] = {only = true, draw = faceImage(f.info.urls.face_bar, 102, 64)}
+				local team = b.opts and b.opts["p" .. side] and b.opts["p" .. side].team or {}
+				for k = 2, 3 do
+					local id = team[(b.teamIndex and b.teamIndex[side] or 1) + k - 1]
+					local mi = id and BVNMenu and BVNMenu.FighterInfo and BVNMenu.FighterInfo(id)
+					if mi and mi.urls.face_bar then
+						hov[face .. "/face" .. k .. "/ct"] = {only = true, draw = faceImage(mi.urls.face_bar, 102, 64)}
+					else
+						hov[face .. "/face" .. k] = {hide = true}
+					end
+				end
+				-- WinUI.
+				local shown = {}
+				for _, w in ipairs(h.wins[side]) do shown[w.slot] = w.f end
+				for _, slot in ipairs({"w1", "w2"}) do
+					hov["win_p" .. side .. "/" .. slot] = {frame = shown[slot] or 1}
+				end
+			end
+		end
+		-- FightTimeUI: MCNumber(timeNumber, gap 20, 2 digits) at (-22, -15), or the infinity mark.
+		if (b.timeMax or b.time) == -1 or b.time < 0 then
+			hov["timemc/wuxian"] = {}
+		else
+			hov["timemc/wuxian"] = {hide = true}
+			local s = P.NumberText(b.time, 2)
+			hov.timemc = {after = function(a, d, x, y, al, order)
+				P.Digits("$fight$MC_timeNumber", s, 20, a, d, x + a * -22, y + d * -15, al, order)
+			end}
+		end
+		-- FightScoreUI (arcade): MCNumber(scoreNumber, gap 10, 10 digits) in scoremc.ct.
+		if isArcade(b) then
+			local g = BVNGame and BVNGame.current
+			local rate = (BVNSettings and BVNSettings.keyMode == 0) and 1 or 0.8
+			local score = math.floor((g and g.score or 0) + (b.score or 0) * rate)
+			local s = P.NumberText(score, 10)
+			hov["scoremc/ct"] = {only = true, draw = function(a, d, x, y, al, order)
+				P.Digits("$fight$MC_scoreNumber", s, 10, a, d, x, y, al, order)
+			end}
+		end
+		local hparts = hbNode.parts
+		local visible = h.barIn
+		if not BVNHud.BITMAP_UI then
+			local tr = trackOf("$fight$MC_hpBar")
+			if tr then hparts = P.TrackFrame(tr, h.barF, hbNode.parts) end
+			visible = h.barIn or h.barAnim
+		end
+		if visible then
+			local m = hbNode.m
+			local a, d = SCALE * m[1], SCALE * m[4]
+			local x, y = tx + SCALE * m[5], ty + SCALE * m[6]
+			-- BITMAP_UI order: bars and energy, the bar art (faces, frame, time), then wins and score.
+			local late = {win_p1 = true, win_p2 = true, scoremc = true}
+			local fhov = setmetatable({}, {__index = function(_, k) return hov[k] end})
+			for k in pairs(late) do fhov[k] = {hide = true} end
+			P.Draw(hparts, a, d, x, y, fhov, "", 255, ORDER_BAR)
+			P.Draw(hparts, a, d, x, y, hov, "", 255, ORDER_TOP, late)
+		end
+		for _, t in ipairs(hpTexts) do
+			local size = math.floor(12 * SCALE)
+			BVNDraw.Text(t[1], t[2] + 3, t[3] + 3, size, {0, 0, 0}, 180)
+			BVNDraw.Text(t[1], t[2], t[3], size, t[4])
+		end
+
+		-- renderPlayerPosUI: hidden when the camera zooms past 1.8.
+		local c = b.cam
+		if c and (c.zoom or 1) <= 1.8 then
+			for side = 1, 2 do
+				local f = b.fighters[side]
+				local pos = BVNUIData["$fight$SP_playerPos" .. side]
+				if f and pos then
+					local px, py = playerPos(b, f)
+					P.Draw(pos.parts, SCALE, SCALE, OX + px * SCALE, py * SCALE, {}, "", 255, ORDER_MARK)
+				end
+			end
+		end
+
+		-- TrainingInputHistoryUI at x 20 (P1, left aligned) and 780 (P2, right aligned).
+		if h.history then
+			BVNHudParts.History.Draw(h.history[1], 20, SCALE, SCALE, tx, ty, ORDER_MARK)
+			BVNHudParts.History.Draw(h.history[2], 800 - 20, SCALE, SCALE, tx, ty, ORDER_MARK)
 		end
 	end,
 }
