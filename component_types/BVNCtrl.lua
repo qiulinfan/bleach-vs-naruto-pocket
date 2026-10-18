@@ -189,26 +189,47 @@ function McCtrl:moveMC() end
 local EffCtrl = {}
 BVNCtrl.Eff = EffCtrl
 
-function EffCtrl:shine(color) self.f.battle.fx:Shine(color or 0xFFFFFF) end
-function EffCtrl:shake(px, py, time) self.f.battle.fx:Shake(math.max(px or 0, py or 3) * 2, time) end
-function EffCtrl:startShake(px, py) self.f.battle.fx:StartShake(math.max(px or 0, py or 3)) self.f.shaking = true end
+-- FighterEffectCtrl.
+function EffCtrl:shine(color)
+	color = color or 0xFFFFFF
+	self.f.battle.fx:Shine(color, color == 0xFFFFFF and 0.3 or 0.2)
+end
+function EffCtrl:shake(px, py, time) self.f.battle.fx:Shake(0, math.max(px or 0, py or 3) * 2, (time or 0) * 1000) end
+function EffCtrl:startShake(px, py) self.f.battle.fx:StartShake(px or 0, py or 3) self.f.shaking = true end
 function EffCtrl:endShake() if self.f.shaking then self.f.battle.fx:EndShake() self.f.shaking = false end end
-function EffCtrl:shadow(r, g, b) self.f.shadow = {r or 0, g or 0, b or 0} end
-function EffCtrl:endShadow() self.f.shadow = nil end
+function EffCtrl:shadow(r, g, b) self.f.shadowing = true; self.f.battle.fx:StartShadow(self.f, r or 0, g or 0, b or 0) end
+function EffCtrl:endShadow() if self.f.shadowing then self.f.battle.fx:EndShadow(self.f) end end
 function EffCtrl:dash() self.f.battle.fx:Effect(self.f.inAir and "dash_air" or "dash", self.f.x, self.f.y, self.f.dir) end
 function EffCtrl:bisha(super, face) self.f.battle:Bisha(self.f, BVNRuntime.T(super), face) end
 function EffCtrl:endBisha() self.f.battle:EndBisha(self.f) end
 function EffCtrl:startWanKai(face) self.f.battle:Bisha(self.f, true, face, true) end
 function EffCtrl:endWanKai() if self.f.state == S.WANKAI then self.f.battle:EndBisha(self.f) end end
-function EffCtrl:walk() BVNSound.Play("bvn/step" .. (1 + math.floor(BVNRuntime.RAND() * 3)), 60) end
-function EffCtrl:slowDown(sec) self.f.battle.fx:Slow(1.5, (sec or 1) * 1000) end
-function EffCtrl:jump() self.f.battle.fx:Effect("jump", self.f.x, self.f.y, self.f.dir) end
-function EffCtrl:jumpAir() self.f.battle.fx:Effect("jump_air", self.f.x, self.f.y, self.f.dir) end
-function EffCtrl:touchFloor() self.f.battle.fx:Effect("touch_floor", self.f.x, self.f.y, self.f.dir) end
-function EffCtrl:hitFloor() self.f.battle.fx:Effect("hit_floor", self.f.x, self.f.y, self.f.dir) end
+function EffCtrl:walk()
+	local f = self.f
+	if f.ghost then f.battle.fx:Effect("ghost_step", f.x, f.y, f.dir)
+	else BVNSound.Play("bvn/step" .. (1 + math.floor(BVNRuntime.RAND() * 3)), 60) end
+end
+function EffCtrl:slowDown(sec) self.f.battle.fx:SlowDown(1.5, (sec or 1) * 1000) end
+function EffCtrl:jump() self.f.battle.fx:Effect("jump", self.f.x, self.f.y) end
+function EffCtrl:jumpAir() self.f.battle.fx:Effect("jump_air", self.f.x, self.f.y) end
+function EffCtrl:touchFloor() self.f.battle.fx:Effect("touch_floor", self.f.x, self.f.y) end
+-- hitFloor(type, pow): 0 bounce, 1 normal, 2 heavy (FighterHitFloorType).
+function EffCtrl:hitFloor(t, pow)
+	local id = ({[0] = "hit_floor", [1] = "hit_floor_low", [2] = "hit_floor_heavy"})[t or 0] or "hit_floor"
+	if self.f.HitFloor then self.f:HitFloor(id, pow or 0) else self.f.battle.fx:Effect(id, self.f.x, self.f.y) end
+end
+function EffCtrl:energyExplode() self.f.battle.fx:EnergyExplode(self.f) end
+function EffCtrl:replaceSkill() self.f.battle.fx:ReplaceSkill(self.f) end
 function EffCtrl:startGlow(color) self.f.glow = color end
 function EffCtrl:endGlow() self.f.glow = nil end
-function EffCtrl:addFollowEffect() end
+-- addFollowEffect: retried on the next animate frame until the child is placed.
+function EffCtrl:addFollowEffect(name, under)
+	local f = self.f
+	if f.kind ~= "fighter" then return end
+	if not f.battle:AddFollowEffect(f, name, BVNRuntime.T(under)) then
+		f:FrameOut(function() self:addFollowEffect(name, under) end, 1)
+	end
+end
 function EffCtrl:ghostStep() end
 function EffCtrl:endGhostStep() end
 
@@ -226,8 +247,8 @@ function FCtrl.Get(t, k)
 	if k == "hp" then return f.hp end
 	if k == "energy" then return f.energy end
 	if k == "hitModel" then return FCtrl.HitModel(f) end
-	if k == "target" then return f:Target() end
-	if k == "self" then return f end
+	if k == "target" then return BVNClip.Facade(f:Target()) end
+	if k == "self" then return BVNClip.Facade(f) end
 	return M[k]
 end
 function FCtrl.Set(t, k, v)
@@ -294,6 +315,23 @@ function M:targetInRange(xr, yr)
 	if yr and (dy < yr[1] or dy > yr[2]) then return false end
 	return true
 end
+-- FighterCtrler accessors the scripts use.
+function M:getEffectCtrl() return self.f.effCtrl end
+function M:getMcCtrl() return self.f.mcCtrl end
+function M:getVoiceCtrl()
+	local f = self.f
+	return {playVoice = function(_, kind, rate)
+		local names = {[0] = "hurt", [1] = "hurtFly", [2] = "die"}
+		if BVNRuntime.RAND() <= (rate or 1) then f:Voice(type(kind) == "number" and names[kind] or kind) end
+	end}
+end
+function M:getCameraCtrler() return {focus = function() end, setZoom = function() end} end
+function M:getOwner() return BVNClip.Facade(self.f) end
+function M:getOwnerTop() return BVNClip.Facade(self.f) end
+function M:getSelf() return BVNClip.Facade(self.f) end
+function M:getTargetAll() local t = self.f:Target() return BVNRuntime.ARRAY({t}) end
+function M:getBodyArea() return self.f:BodyArea() end
+function M:getHitCheckRect(name) return self.f:CheckerRect(name) end
 function M:getTargetSP() return self.f:Target() end
 function M:getTarget() return self.f:Target() end
 function M:setTargetVelocity(x, y) local t = self.f:Target() if t then t:SetVelocity(x or 0, y or 0) end end
@@ -309,11 +347,15 @@ function M:addEnergy(v) self.f.energy = math.min(self.f.energyMax, self.f.energy
 function M:loseQi(v) self.f:UseQi(v or 0) end
 function M:getBuffCtrl()
 	local f = self.f
-	local function fx(id) f.battle.fx:Named(id, f.x, f.y, f.dir) end
+	-- FighterBuffCtrler: the "up" buffs show a burst and a looping clip while they last.
+	local function fx(kind, buff)
+		f.battle.fx:Effect("buff_effect_" .. kind, f.x, f.y)
+		f.battle.fx:BuffEffect("buff_" .. kind, f, buff)
+	end
 	return {
-		attackUp = function(_, rate, sec) f:AddBuff("attackRate", rate or 0, sec or 5); fx("buff_effect_power") end,
-		defenseUp = function(_, v, sec) f:AddBuff("defenseRate", v or 0, sec or 5); fx("buff_effect_defense") end,
-		speedUp = function(_, v, sec) f:AddBuff("speed", v or 0, sec or 5); fx("buff_effect_speed") end,
+		attackUp = function(_, rate, sec) fx("power", f:AddBuff("attackRate", rate or 0, sec or 5)) end,
+		defenseUp = function(_, v, sec) fx("defense", f:AddBuff("defenseRate", v or 0, sec or 5)) end,
+		speedUp = function(_, v, sec) fx("speed", f:AddBuff("speed", v or 0, sec or 5)) end,
 		attackDown = function(_, rate, sec) f:AddBuff("attackRate", rate or 0, sec or 5) end,
 		defenseDown = function(_, v, sec) f:AddBuff("defense", -(v or 0), sec or 5) end,
 		speedDown = function(_, v, sec) f:AddBuff("speed", -(v or 0), sec or 5) end,

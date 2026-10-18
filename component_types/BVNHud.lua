@@ -109,6 +109,8 @@ BVNHud = {
 	end,
 
 	StepBanner = function(b)
+		local w = b.winnerShow
+		if w and w.f < w.last then w.f = w.f + 0.5 end
 		local bn = b.banner
 		if not bn then return end
 		bn.tick = bn.tick + 1
@@ -121,13 +123,34 @@ BVNHud = {
 	end,
 
 	DrawBanner = function(b)
-		local bn = b.banner
-		if not bn then return end
-		local fr = bn.frames[bn.f]
-		if not fr or not fr.img then return end
 		local node = findNode(BVNUIData["$fight$MC_fightUI"].parts, "startKOmc")
 		local nx = node and node.m[5] or 400
-		Image.DrawUIScaled(fr.img, OX + (nx + fr.x) * SCALE, (bn.y + fr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255, 30)
+		local ox, oy = OX + (BVNHud.shakeX or 0) * SCALE, (BVNHud.shakeY or 0) * SCALE
+		local bn = b.banner
+		local fr = bn and bn.frames[bn.f]
+		if fr and fr.img then
+			Image.DrawUIScaled(fr.img, ox + (nx + fr.x) * SCALE, oy + (bn.y + fr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255, 30)
+		end
+		-- FightUI.showWinner: winnermc at $winnerX / $winnerY inside startKOmc (y 30).
+		local w = b.winnerShow
+		local wfr = w and w.anim.frames[math.floor(w.f)]
+		if wfr and wfr.img then
+			Image.DrawUIScaled(wfr.img, ox + (nx + w.x + wfr.x) * SCALE, oy + (30 + 90 + wfr.y) * SCALE, SCALE, SCALE, 255, 255, 255, 255, 30)
+		end
+	end,
+
+	ShowWinner = function(b, winner)
+		b.winsShown = {b.wins[1], b.wins[2]}
+		local anim = BVNUIData and BVNUIData.anims and BVNUIData.anims.winnermc
+		if not anim then return end
+		local perfect = winner.hp >= winner.hpMax
+		local last = perfect and #anim.frames or (anim.stopFrame or #anim.frames)
+		b.winnerShow = {anim = anim, f = 1, last = last, x = winner.side == 1 and 30 or 546}
+	end,
+
+	ClearWinner = function(b)
+		b.winnerShow = nil
+		b.banner = nil
 	end,
 
 	Available = function()
@@ -160,8 +183,9 @@ BVNHud = {
 					ov[face .. "/face" .. k] = {hide = true}
 				end
 			end
+			local wins = (b.winsShown or b.wins)[side]
 			for i = 1, 2 do
-				ov[win .. "/w" .. i] = b.wins[side] >= i and {frame = 999} or {hide = true}
+				ov[win .. "/w" .. i] = wins >= i and {frame = 999} or {hide = true}
 			end
 			local bars = math.floor(f.qi / 100)
 			ov[qi .. "/barmc/bar"] = {sx = f.qi >= f.qiMax and 1 or (f.qi % 100) / 100}
@@ -183,7 +207,8 @@ BVNHud = {
 				digits("$fight$MC_timeNumber", b.time, 2, 20)(a, d, tx + a * -22, ty + d * -15, al, order + 1)
 			end}
 		end
-		draw(root, SCALE, SCALE, OX, 0, ov, "", 255, 10)
+		if b.ko then ov["fzqi1"], ov["fzqi2"] = {hide = true}, {hide = true} end
+		draw(root, SCALE, SCALE, OX + (BVNHud.shakeX or 0) * SCALE, (BVNHud.shakeY or 0) * SCALE, ov, "", 255, 10)
 		BVNHud.DrawBanner(b)
 		-- Names under the bars (the original shows them on the select screen only).
 		for side = 1, 2 do

@@ -71,15 +71,20 @@ function Input:jumpQuick() return not self.classic and pressed(self, "jump") and
 function Input:jumpDown() return self.down and pressed(self, "jump") end
 function Input:dash() return pressed(self, "dash") and not self.down end
 function Input:dashJump() return pressed(self, "dash") end
-function Input:catch1() return pressed(self, "attack") and (self.left or self.right) end
-function Input:catch2() return pressed(self, "skill") and (self.left or self.right) end
+-- Catches always read the 6-tick press buffer, also in classic mode.
+function Input:catch1() return self.buf.attack > 0 and (self.left or self.right) end
+function Input:catch2() return self.buf.skill > 0 and (self.left or self.right) end
 function Input:attackAIR() return pressed(self, "attack") end
 function Input:skillAIR() return pressed(self, "skill") end
 function Input:bishaAIR() return pressed(self, "super") end
-function Input:waiKai()
+-- Bankai: attack and jump held together (GameKeyInput.wankai), plain / with up / with down.
+function Input:wankai()
 	if self.cpu then return self.cpuWaiKai end
 	return self.held.attack and self.held.jump
 end
+function Input:waiKai() return self:wankai() and not (self.up or self.down) end
+function Input:waiKaiW() return self.up and self:wankai() end
+function Input:waiKaiS() return self.down and self:wankai() end
 function Input:special() return self.special_held end
 function Input:ghostStep() return pressed(self, "dash") and self.down end
 function Input:ghostJump() return pressed(self, "dash") and self.up end

@@ -69,6 +69,17 @@ CASTS = {"MovieClip", "Sprite", "DisplayObject", "Object", "DisplayObjectContain
 
 
 # Expression nodes are tuples: (kind, ...)
+def type_default(typ):
+    """The value an AS3 variable of this type starts with."""
+    if typ in ("int", "uint"):
+        return ("num", "0")
+    if typ == "Number":
+        return ("raw", "(0/0)")
+    if typ == "Boolean":
+        return ("raw", "false")
+    return None
+
+
 class Parser:
     def __init__(self, tokens):
         self.t = tokens
@@ -114,12 +125,14 @@ class Parser:
     def type_annot(self):
         if self.eat(":"):
             if self.eat("*"):
-                return
-            self.next()
+                return None
+            t = self.next()[1]
             if self.eat("."):
                 self.expect("<")
                 self.next()
                 self.expect(">")
+            return t
+        return None
 
     def statement(self):
         k, v = self.peek()
@@ -134,8 +147,8 @@ class Parser:
                 decls = []
                 while True:
                     name = ident(self.next()[1])
-                    self.type_annot()
-                    init = self.expr() if self.eat("=") else None
+                    typ = self.type_annot()
+                    init = self.expr() if self.eat("=") else type_default(typ)
                     decls.append((name, init))
                     if not self.eat(","):
                         break
@@ -252,8 +265,8 @@ class Parser:
         if self.at("var"):
             self.next()
             name = ident(self.next()[1])
-            self.type_annot()
-            init = self.expr() if self.eat("=") else None
+            typ = self.type_annot()
+            init = self.expr() if self.eat("=") else type_default(typ)
             return ("var", [(name, init)])
         e = self.expr()
         return ("expr", e)
@@ -694,6 +707,10 @@ def split_members(src):
             end = src.index(";", j)
             decl = src[j:end]
             init = decl.split("=", 1)[1].strip() if "=" in decl else None
+            if init is None:
+                # AS3 defaults: int / uint 0, Number NaN, Boolean false.
+                tm = re.match(r"\s*:\s*(\w+)", decl)
+                init = {"int": "0", "uint": "0", "Number": "NaN", "Boolean": "false"}.get(tm.group(1)) if tm else None
             fields[name] = init
             i = end + 1
         else:

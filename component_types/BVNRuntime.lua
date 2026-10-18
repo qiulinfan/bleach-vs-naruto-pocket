@@ -70,6 +70,10 @@ end
 -- Objects scripts construct with `new` (Point, ColorTransform, ...): plain tables.
 function R.NEW(cls, a, b)
 	if cls == "Point" or cls == "flash.geom.Point" then return {x = a or 0, y = b or 0} end
+	-- new (effect.constructor)(sprite): a FighterEffectCtrl bound to that sprite.
+	if cls == "?" and type(a) == "table" and rawget(a, "_sp") then
+		return setmetatable({f = rawget(a, "_sp")}, {__index = BVNCtrl.Eff})
+	end
 	if cls == "Array" then return R.ARRAY({}) end
 	return {}
 end
@@ -133,7 +137,27 @@ end
 
 -- A class referenced by name in a script (faces, sounds, Event, ...).
 local classCache = {}
+-- flash.display.Stage: scripts add ENTER_FRAME listeners (gaara's sand wall); the battle
+-- runs them once per logic tick.
+local enterFrame = {}
+local stage = {
+	addEventListener = function(_, _, fn) enterFrame[fn] = true end,
+	removeEventListener = function(_, _, fn) enterFrame[fn] = nil end,
+	hasEventListener = function() return next(enterFrame) ~= nil end,
+}
+function R.EnterFrame()
+	for fn in pairs(enterFrame) do
+		local ok, err = pcall(fn, {})
+		if not ok then
+			enterFrame[fn] = nil
+			Debug.Log("BVN enterFrame listener: " .. tostring(err))
+		end
+	end
+end
+function R.ClearEnterFrame() enterFrame = {} end
+
 function R.CLASS(name)
+	if name == "stage" then return stage end
 	local c = classCache[name]
 	if not c then
 		c = setmetatable({name = name}, {__index = function(_, k) return name .. "." .. k end})

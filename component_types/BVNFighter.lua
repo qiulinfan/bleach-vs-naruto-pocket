@@ -82,6 +82,8 @@ function BVNFighter.New(battle, char, form, side, input)
 	f.combo = 0
 	f.ghosts = {}
 	f.explodeHitFrame, f.explodeSteelFrame = 0, 0
+	f.isTouchFloor = true
+	f.jumpTimes, f.airHitTimes = 2, 1
 
 	f.mcCtrl = setmetatable({f = f}, {__index = BVNCtrl.Mc})
 	f.effCtrl = setmetatable({f = f}, {__index = BVNCtrl.Eff})
@@ -225,7 +227,7 @@ end
 -- World rect of a named child checker (setHitTarget), or nil.
 function Fighter:CheckerRect(name)
 	local f = self:Frame()
-	local r = f and f.hits and f.hits[name]
+	local r = f and f.hits and (f.hits[name] or f.hits["#" .. name])
 	if r and #r == 4 then return self:WorldRect(r) end
 	return nil
 end
@@ -354,10 +356,11 @@ function Fighter:ClearAction()
 	a.bishaQi, a.bishaUPQi, a.bishaAIRQi, a.bishaSUPERQi = 100, 100, 100, 300
 end
 
+-- FighterAction.clearState.
 function Fighter:ClearState()
+	self.isMoving, self.isJumping, self.isDefensing, self.isDashing = false, false, false, false
 	self.isHurting, self.isHurtFlying, self.isDefenseHiting = false, false, false
 	self.act.touchFloorBreakAct = nil
-	self.moveTarget = nil
 end
 
 function Fighter:SetAllAct()
@@ -374,7 +377,9 @@ function Fighter:SetAirAllAct()
 	self.act.airMove = true
 end
 
+-- FighterMcCtrler.doAction.
 function Fighter:DoAction(label, airAct, delay)
+	if label == nil then return end
 	self.effCtrl:endShadow()
 	self.effCtrl:endShake()
 	self:SetVelocity(0, 0)
@@ -389,72 +394,64 @@ function Fighter:DoAction(label, airAct, delay)
 	self:GoFrame(label, true, 0, delay)
 end
 
+-- FighterMcCtrler.idle.
 function Fighter:Idle(frame, ignoreAlive)
 	if not self.alive and not ignoreAlive then return end
-	if self.inAir and not self.touchBottom and not frame and not self.onFloorVO then
-		self.doingAction = nil
-		self:Fall()
-		return
-	end
+	-- FighterMcHurtCtrl.onIdleEnter.
+	if self:IsHurting() then self.justHurtResume = true end
+	self.justDefenseFrame = 6
+	self.isDefense = false
+	self:EndAct()
+	self.doingAction, self.doingAirAction = nil, nil
+	self.steel, self.steelSuper = false, false
 	self.effCtrl:endShadow()
 	self.effCtrl:endShake()
 	self:ClearAction()
 	self:ClearState()
-	self.isMoving, self.isDefensing, self.isDashing, self.isJumping, self.isFalling = false, false, false, false, false
-	self.isDefense = false
-	self.doingAction, self.doingAirAction = nil, nil
 	self.state = S.NORMAL
 	self.allowBeHit = not self.justHurtResume
 	self.applyG, self.isCross = true, false
 	self.hurtHit, self.defenseHit = nil, nil
-	self.steel, self.steelSuper = false, false
-	self:SetVelocity(0, 0)
-	self.justDefenseFrame = 6
-	self.act.jumpTimes, self.act.airHitTimes = 2, 1
 	self.currentHurts, self.currentHurtDamage = {}, 0
-	self.battle:OnIdle(self)
-	if frame then
-		self:GoFrame(frame, true)
+	self.autoDirect = 0
+	self.visible = true
+	if not self.isTouchFloor and self.inAir then
+		self:Fall()
 	else
-		self:GoFrame("站立", false)
-		self:SetAllAct()
+		self:SetVelocity(0, 0)
+		if frame and frame ~= "站立" then
+			self:GoFrame(frame, true)
+		else
+			self.act.jumpTimes, self.act.airHitTimes = self.jumpTimes, self.airHitTimes
+			self:SetAllAct()
+			self:GoFrame("站立", false)
+		end
 	end
+	self.battle:OnIdle(self)
 end
 
 function Fighter:EndAct()
 	self:ClearAction()
 	self.state = S.FREEZE
 	self.moveTarget = nil
-	self.steel, self.steelSuper = false, false
 end
 
--- Per logic tick (T) ----------------------------------------------------------------
+-- Per logic tick (FighterMain.render -> FighterMcCtrler.render) -----------------------
 
 function Fighter:Render()
 	self:RenderVelocity()
 	self:RenderBuffs()
 	runTimers(self.delayCalls)
-	self.justDefenseFrame = self.justDefenseFrame - 1
-	if self.moveTarget then self:RenderMoveTarget() end
 	if self.ghost then return end
-	local inp = self.input
+	if self.justDefenseFrame > 0 then self.justDefenseFrame = self.justDefenseFrame - 1 end
+	if self.moveTarget then self:RenderMoveTarget() end
 	if self.isHurtFlying then self:RenderHurtFlying() return end
-	if self.isHurting then self:RenderHurtBreak() return end
-	if self.isDefenseHiting then self:RenderDefense(false, true) return end
-	if not self.battle.actionEnable then
-		if self.state == S.NORMAL and (self:CurLabel() == "走" or self:CurLabel() == "防御") then self:Idle() end
+	if self.isHurting then
+		if self.alive then self:RenderHurtBreak() end
 		return
 	end
-	if self.act.hitTarget and self.act.hitTargetChecker then
-		local r = self:CheckerRect(self.act.hitTargetChecker)
-		local t = self:Target()
-		local body = t and t:RawBody()
-		if r and body and BVNBattle.Intersects(r, body) then
-			local label = self.act.hitTarget
-			self:DoAction(label)
-			return
-		end
-	end
+	if self.isDefenseHiting then self:RenderDefense(false, true) return end
+	if self.act.hitTarget then self:RenderCheckTargetHit() end
 	if self:RenderWanKai() then return end
 	if self.inAir or (self.doingAirAction and not self.act.touchFloorBreakAct) then
 		self:RenderAirAction()
@@ -463,26 +460,48 @@ function Fighter:Render()
 	end
 end
 
--- Per animate tick (A).
+-- FighterMcActionCtrl.renderCheckTargetHit.
+function Fighter:RenderCheckTargetHit()
+	local name = self.act.hitTargetChecker
+	if not name then return end
+	local r = self:CheckerRect(name)
+	local t = self:Target()
+	local body = t and t:BodyArea()
+	if r and body and BVNBattle.Intersects(r, body) then self:DoAction(self.act.hitTarget) end
+end
+
+-- Per animate tick (FighterMain.renderAnimate -> FighterMcCtrler.renderAnimate).
 function Fighter:RenderAnimate()
 	runTimers(self.frameOut)
+	-- FighterMcHurtCtrl.renderAnimatePrelude.
 	if self.justHurtResume then
-		self.justHurtResume = false
 		self.allowBeHit = true
+		self.justHurtResume = false
 	end
 	if self.beHitGap > 0 then
 		self.beHitGap = self.beHitGap - 1
 		if self.beHitGap <= 0 then self.allowBeHit = true end
 	end
 	self:RenderMcAnimate()
-	if self.ghost then self:RenderGhost() end
-	if self.isHurting then self:RenderHurtAnimate() end
-	if self.isDefenseHiting then self:RenderDefenseHiting() end
-	if self.isJumping and not self.doingAction then self:RenderJumpAnimate() end
-	self.doActionFrame = self.doActionFrame + 1
-	if self.isDefensing then self:RenderDefenseAnimate() end
-	if self.state == S.NORMAL and self:CurLabel() == "站立" and self.fmc.curFrameCount % 6 == 0 then self:FaceTarget() end
+	if self.ghost then
+		self:RenderGhost()
+	else
+		if self.isHurting then self:RenderHurtAnimate() end
+		if self.isDefenseHiting then self:RenderDefenseHiting() end
+		if self.isJumping then self:RenderJumpAnimate() end
+		if self.doingAction then self.doActionFrame = self.doActionFrame + 1 end
+		if self.isDefensing then self:RenderDefenseAnimate() end
+	end
+	-- tickAutoDirect: the idle pose turns toward the target every sixth frame.
+	if self:CurLabel() == "站立" then
+		self.autoDirect = (self.autoDirect or 0) + 1
+		if self.autoDirect > 5 then
+			self:FaceTarget()
+			self.autoDirect = 0
+		end
+	end
 	self:RenderEnergy()
+	self.fzqi = math.min(self.fzqiMax, self.fzqi + 0.2)
 	-- FighterMain.renderAnimate: the burst hit is live while its counter runs 7..1 of 10;
 	-- its super armour is reasserted every A for 60 A.
 	if self.explodeHitFrame > 0 then
@@ -500,77 +519,80 @@ function Fighter:RenderAnimate()
 		self.explodeSteelFrame = self.explodeSteelFrame - 1
 		self.steel, self.steelSuper = self.explodeSteelFrame > 0, self.explodeSteelFrame > 0
 	end
-	self.fzqi = math.min(self.fzqiMax, self.fzqi + 0.2)
+	if (self.replaceSkillFrame or 0) > 0 then
+		self.replaceSkillFrame = self.replaceSkillFrame - 1
+		if self.replaceSkillFrame <= 0 then self.allowBeHit = true end
+	end
 end
 
--- Floor actions (FighterMcFloorHandler) ------------------------------------------------
-
+-- Floor actions (FighterMcFloorHandler): every check runs in order; an action clears
+-- the windows, which disables the later ones.
 function Fighter:RenderFloorAction()
 	if not self.alive then return end
-	if self.wasInAir then self:TouchFloor() end
-	local k, a = self.input, self.act
-	local function ok(win, pred) return a[win] and k[pred](k) end
-	if k:special() and (self.state == S.NORMAL or self.state == S.DEFENSE) and self.fzqi >= 100 then
-		if self.battle:CallAssist(self) then return end
-	end
-	if ok("catch1", "catch1") and self:AllowCatch() then self:DoCatch(a.catch1) return end
-	if ok("catch2", "catch2") and self:AllowCatch() then self:DoCatch(a.catch2) return end
-	if ok("bishaSUPER", "bishaSUPER") and self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) then return end
-	if ok("bishaUP", "bishaUP") and self:DoBisha(a.bishaUP, a.bishaUPQi) then return end
-	if ok("bisha", "bisha") and self:DoBisha(a.bisha, a.bishaQi) then return end
-	if ok("skill2", "skill2") then self:DoSkill(a.skill2) return end
-	if ok("skill1", "skill1") then self:DoSkill(a.skill1) return end
-	if ok("zhao3", "zhao3") then self:DoSkill(a.zhao3) return end
-	if ok("zhao2", "zhao2") then self:DoSkill(a.zhao2) return end
-	if ok("attack", "attack") then self:DoAttack(a.attack) return end
-	if ok("zhao1", "zhao1") then self:DoSkill(a.zhao1) return end
-	if self:AllowGhost() then
-		if k:ghostStep() and self:StartGhost(0) then return end
-		if k:ghostJump() and self:StartGhost(1) then return end
-	end
-	if ok("defense", "defense") then self:DoDefense() return end
-	if self.isDefensing then
-		self:RenderDefense(true)
+	if not self.isTouchFloor then self:TouchFloor() end
+	if not self.battle.actionEnable then
+		local l = self:CurLabel()
+		if l == "走" or l == "防御" then self:Idle() end
 		return
 	end
-	if ok("dash", "dash") and self:HasEnergy(20, true) then self:DoDash() return end
-	if a.jumpDown and k:jumpDown() and self.onFloorVO then self:DoJumpDown() return end
-	if (a.jump and k:jump()) then self:DoJump() return end
-	if (a.moveLeft and k:moveLEFT()) or (a.moveRight and k:moveRIGHT()) or self.isMoving then
-		if self:RenderMoving() then return end
-	end
+	local k, a = self.input, self.act
+	local function L(win, pred) return a[win] and k[pred](k) end
+	if k:special() then self.battle:DoSpecial(self) end
+	if L("catch1", "catch1") then self:DoCatch(a.catch1) end
+	if L("catch2", "catch2") then self:DoCatch(a.catch2) end
+	if L("bishaSUPER", "bishaSUPER") then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) end
+	if L("bishaUP", "bishaUP") then self:DoBisha(a.bishaUP, a.bishaUPQi) end
+	if L("bisha", "bisha") then self:DoBisha(a.bisha, a.bishaQi) end
+	if L("skill2", "skill2") then self:DoSkill(a.skill2) end
+	if L("skill1", "skill1") then self:DoSkill(a.skill1) end
+	if L("zhao3", "zhao3") then self:DoSkill(a.zhao3) end
+	if L("zhao2", "zhao2") then self:DoSkill(a.zhao2) end
+	if L("attack", "attack") then self:DoAttack(a.attack) end
+	if L("zhao1", "zhao1") then self:DoSkill(a.zhao1) end
+	if L("defense", "defense") then self:DoDefense() end
+	if L("dash", "dash") then self:DoDash(a.dash) end
+	if L("moveLeft", "moveLEFT") then self:DoMove() end
+	if L("moveRight", "moveRIGHT") then self:DoMove() end
+	if L("jump", "jump") then self:DoJump() end
+	if L("jumpDown", "jumpDown") then self:DoJumpDown(a.jumpDown) end
+	if self.isMoving then self:RenderMoving() end
+	if self.isDefensing then self:RenderDefense(true, false) end
+	if self:AllowGhost() and k:ghostStep() then self:StartGhost(0) end
+	if self:AllowGhost() and k:ghostJump() then self:StartGhost(1) end
 	if self:IsAttacking() then
-		if ok("attackAIR", "attackAIR") then self:DoAirAttack(a.attackAIR) return end
-		if ok("skillAIR", "skillAIR") then self:DoAirSkill(a.skillAIR) return end
-		if ok("bishaAIR", "bishaAIR") then self:DoAirBisha(a.bishaAIR) return end
+		if L("attackAIR", "attackAIR") then self:DoAirAttack(a.attackAIR) end
+		if L("skillAIR", "skillAIR") then self:DoAirSkill(a.skillAIR) end
+		if L("bishaAIR", "bishaAIR") then self:DoAirBisha(a.bishaAIR, a.bishaAIRQi) end
 	end
 end
 
 function Fighter:RenderMoving()
 	local k = self.input
-	local left = self.act.moveLeft and k:moveLEFT()
-	local right = self.act.moveRight and k:moveRIGHT()
-	if not left and not right then
-		if self.isMoving then self:Idle() end
-		return false
+	if k:moveLEFT() then
+		self.dir = -1
+		self.mcCtrl:move(self.speed)
+	elseif k:moveRIGHT() then
+		self.dir = 1
+		self.mcCtrl:move(self.speed)
+	else
+		self:Idle()
 	end
-	if not self.isMoving then
-		self.isMoving = true
-		self:GoFrame("走", true)
-		self.state = S.NORMAL
-		self:SetMoveAction()
-	end
-	self.dir = left and -1 or 1
-	self:SetVelocity(self.speed * self.dir, 0)
-	return true
+end
+
+function Fighter:DoMove()
+	if self.isMoving then return end
+	self:GoFrame(self.act.moveLeft == true and "走" or (self.act.moveLeft or "走"), true)
+	self.state = S.NORMAL
+	self:SetMoveAction()
 end
 
 function Fighter:SetMoveAction()
 	self:ClearAction()
+	self.isMoving = true
 	local a, mc = self.act, self.mcCtrl
-	a.moveLeft, a.moveRight, a.defense = true, true, true
+	a.moveLeft, a.moveRight = true, true
 	mc:setAttack(); mc:setZhao1(); mc:setZhao3(); mc:setSkill2(); mc:setJump(); mc:setDash()
-	mc:setBisha(); mc:setBishaUP(); mc:setCatch1(); mc:setCatch2()
+	mc:setBisha(); mc:setBishaUP(); a.defense = true; mc:setCatch1(); mc:setCatch2()
 end
 
 function Fighter:DoAttack(label)
@@ -587,76 +609,76 @@ function Fighter:DoBisha(label, qi, super)
 	if not self:UseQi(qi or 100) then return false end
 	self.state = super and S.BISHA_SUPER or S.BISHA
 	self:DoAction(label)
-	self.state = super and S.BISHA_SUPER or S.BISHA
 	return true
 end
 
 function Fighter:AllowCatch()
 	local t = self:Target()
-	if not t or t.state == S.HURT or not t.alive then return false end
-	if sign(t.x - self.x) ~= self.dir then return false end
-	local a, b = self:RawBody(), t:RawBody()
-	if not a or not b then return false end
-	local gap = math.max(b[1] - (a[1] + a[3]), a[1] - (b[1] + b[3]))
-	return gap < 2 and math.abs(t.y - self.y) < 1
+	if not t then return false end
+	if t.kind == "fighter" and t.state == S.HURT then return false end
+	local tb, sb = t:BodyArea(), self:BodyArea()
+	if not tb or not sb then return false end
+	local disY = math.abs(self.y - t.y)
+	local disX
+	if sb[1] < tb[1] then
+		if self.dir < 0 then return false end
+		disX = tb[1] - (sb[1] + sb[3])
+	else
+		if self.dir > 0 then return false end
+		disX = sb[1] - (tb[1] + tb[3])
+	end
+	return disX < 2 and disY < 1
 end
 
 function Fighter:DoCatch(label)
+	if not self:AllowCatch() then return end
 	self:DoAction(label)
 	self.state = S.SKILL
 end
 
-function Fighter:DoDash()
+function Fighter:DoDash(label)
+	if not self:HasEnergy(20, true) then return end
 	self:UseEnergy(20)
 	local k = self.input
-	if k:moveLEFT() then self.dir = -1 elseif k:moveRIGHT() then self.dir = 1 end
-	self:DoAction("瞬步")
+	if k:moveLEFT() then self.dir = -1 end
+	if k:moveRIGHT() then self.dir = 1 end
+	self:DoAction(label or "瞬步")
 	self.state = S.DASH
 	self.allowBeHit, self.applyG = false, false
 end
 
--- Defense ----------------------------------------------------------------------------
+-- Defense (FighterMcHurtCtrl) ------------------------------------------------------------
 
 function Fighter:DoDefense()
 	if self.isDefensing then return end
 	self.state = S.DEFENSE
-	self.isDefensing = true
 	self.mcCtrl:dampingPercent(1, 1)
-	self:SetDefenseAction()
+	self:SetDefenseAction(true, false)
 end
 
-function Fighter:SetDefenseAction()
-	self:ClearAction()
-	local mc = self.mcCtrl
-	mc:setSkill1(); mc:setZhao2(); mc:setBishaSUPER(); mc:setJumpDown()
-	self:GoFrame("防御", true, 3)
+function Fighter:SetDefenseAction(setActions, justDefense)
+	if setActions then
+		self:ClearAction()
+		self:ClearState()
+		self.isDefensing = true
+		local mc = self.mcCtrl
+		mc:setSkill1(); mc:setZhao2(); mc:setBishaSUPER(); mc:setJumpDown()
+	end
+	if justDefense then self.isDefense = true else self.isDefense = self.justDefenseFrame > 0 end
 	self.defenseFrameDelay = 1
-	self.isDefense = self.justDefenseFrame > 0
-	self.isMoving = false
+	self:GoFrame("防御", true, 3)
 end
 
-function Fighter:RenderDefense(fromFloor, hiting)
+-- renderDefense: turning while guarding re-enters the guard.
+function Fighter:RenderDefense(setActions, justDefense)
 	local k = self.input
-	local t = self:Target()
-	local want = self.dir
-	if k:moveLEFT() then want = -1 elseif k:moveRIGHT() then want = 1 end
-	if want ~= self.dir and fromFloor and not hiting then
-		self.dir = want
-		self:SetDefenseAction()
-		return
+	if k:moveLEFT() and self.dir ~= -1 then
+		self.dir = -1
+		self:SetDefenseAction(setActions, justDefense)
 	end
-	if hiting and want ~= self.dir then
-		-- setDefenseAction(false, true): turn and re-enter 防御 without resetting the windows.
-		self.dir = want
-		self.isDefense = true
-		self.defenseFrameDelay = 1
-		self:GoFrame("防御", true, 3)
-	end
-	if fromFloor then
-		local a = self.act
-		if a.skill1 and k:skill1() then self:DoSkill(a.skill1) return end
-		if a.zhao2 and k:zhao2() then self:DoSkill(a.zhao2) return end
-		if a.bishaSUPER and k:bishaSUPER() then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) return end
+	if k:moveRIGHT() and self.dir ~= 1 then
+		self.dir = 1
+		self:SetDefenseAction(setActions, justDefense)
 	end
 end
 
@@ -686,47 +708,38 @@ end
 
 -- Air (FighterMcAirHandler) ------------------------------------------------------------
 
-function Fighter:DoJump()
-	if self.act.jumpTimes <= 0 then return end
-	self:ClearAction()
-	self:ClearState()
-	self.doingAction = nil
-	self.isMoving = false
-	self:GoFrame("起跳", false)
-	self.jumpDelay = 2
-	self.isJumping = true
+function Fighter:TouchFloor()
+	if not self.alive then return end
+	local act = self.act.touchFloor
+	if self.isFalling and not act then act = "落地" end
+	if act == nil then return end
+	local delay = act == "落地" and {call = function() self.mcCtrl:setAttack() end, delay = 1} or nil
+	self:DoAction(act, false, delay)
+	self.effCtrl:touchFloor()
+	self.act.airHitTimes, self.act.jumpTimes = self.airHitTimes, self.jumpTimes
+	self.isTouchFloor = true
 	self.isFalling = false
-	self.state = S.JUMP
-end
-
-function Fighter:DoAirJump()
-	if self.act.jumpTimes <= 0 then return end
-	self:ClearAction()
-	self.doingAction = nil
-	self.jumpDelay = 1
-	self.isJumping = true
-	self.isFalling = false
-	self.state = S.JUMP
 end
 
 function Fighter:RenderJumpAnimate()
-	if self.jumpDelay > 0 then
+	if self.doingAction then return end
+	if (self.jumpDelay or 0) > 0 then
 		self.jumpDelay = self.jumpDelay - 1
-		if self.jumpDelay <= 0 then
+		if self.jumpDelay == 0 then
+			self.isFalling = false
 			self.act.jumpTimes = self.act.jumpTimes - 1
 			self:GoFrame("跳", false)
-			local air = self.inAir
+			-- FighterMain.jump
 			self.g = 0
 			self:SetVelocity(0, -self.jumpPower)
 			self:SetDamping(0, 0.5)
 			self:SetAirAllAct()
-			self.battle.fx:Effect(air and "jump_air" or "jump", self.x, self.y, self.dir)
-			self.wasInAir = true
+			if self.inAir then self.effCtrl:jumpAir() else self.effCtrl:jump() end
 		end
 		return
 	end
 	if self.fmc.curFrameCount == 2 then self.mcCtrl:setJumpQuick() end
-	if self.vy > -self.jumpPower * 0.35 and self:CurLabel() ~= "跳中" and self:HasLabel("跳中") then
+	if self:CurLabel() ~= "跳中" and self.vy > -self.jumpPower * 0.35 then
 		self:GoFrame("跳中", false)
 		self:FrameOut(function() self.mcCtrl:setJump() end, 5)
 	end
@@ -736,61 +749,128 @@ function Fighter:RenderJumpAnimate()
 	end
 end
 
+function Fighter:RenderAirAction()
+	if not self.alive then return end
+	if not self.isJumping then self:Fall() end
+	self.isTouchFloor = false
+	if not self.battle.actionEnable then return end
+	local k, a = self.input, self.act
+	local function L(win, pred) return a[win] and k[pred](k) end
+	if L("attackAIR", "attackAIR") then self:DoAirAttack(a.attackAIR) end
+	if L("skillAIR", "skillAIR") then self:DoAirSkill(a.skillAIR) end
+	if L("bishaAIR", "bishaAIR") then self:DoAirBisha(a.bishaAIR, a.bishaAIRQi) end
+	if L("jump", "jump") then self:DoAirJump() end
+	if L("jumpQuick", "jumpQuick") then self:DoAirJump() end
+	if self:IsAttacking() then
+		if L("bishaSUPER", "bishaSUPER") then self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) end
+		if L("bishaUP", "bishaUP") then self:DoBisha(a.bishaUP, a.bishaUPQi) end
+		if L("bisha", "bisha") then self:DoBisha(a.bisha, a.bishaQi) end
+		if L("skill2", "skill2") then self:DoSkill(a.skill2) end
+		if L("skill1", "skill1") then self:DoSkill(a.skill1) end
+		if L("zhao3", "zhao3") then self:DoSkill(a.zhao3) end
+		if L("zhao2", "zhao2") then self:DoSkill(a.zhao2) end
+		if L("attack", "attack") then self:DoAttack(a.attack) end
+		if L("zhao1", "zhao1") then self:DoSkill(a.zhao1) end
+	end
+	if L("dash", "dash") then self:DoDashAir(a.dash) end
+	if a.airMove then
+		if k:moveLEFT() then self:Move(-self.speed, 0) end
+		if k:moveRIGHT() then self:Move(self.speed, 0) end
+	end
+	if self:AllowGhost() and k:ghostJump() then self:StartGhost(1) end
+	if self:AllowGhost() and k:ghostStep() then self:StartGhost(2) end
+end
+
 function Fighter:Fall()
 	if self.isFalling or self.doingAction then return end
 	self:ClearState()
 	self:ClearAction()
-	self.state = S.NORMAL
 	self:SetAirAllAct()
 	self.mcCtrl:setJump()
 	self.isFalling = true
 	self.doingAirAction = nil
+	self.isTouchFloor = false
 	self.isDefense = false
 	self.vx = 0
 	self.mcCtrl:setTouchFloor("落地", true)
 	self:GoFrame("落", false)
 end
 
-function Fighter:RenderAirAction()
-	local k, a = self.input, self.act
-	if not self.isJumping then self:Fall() end
-	self.wasInAir = true
-	local function ok(win, pred) return a[win] and k[pred](k) end
-	if ok("attackAIR", "attackAIR") and self:DoAirAttack(a.attackAIR) then return end
-	if ok("skillAIR", "skillAIR") and self:DoAirSkill(a.skillAIR) then return end
-	if ok("bishaAIR", "bishaAIR") and self:DoAirBisha(a.bishaAIR) then return end
-	if (a.jump and k:jump()) or (a.jumpQuick and k:jumpQuick()) then
-		if self.act.jumpTimes > 0 then self:DoAirJump() return end
-	end
-	if self:IsAttacking() then
-		if ok("bishaSUPER", "bishaSUPER") and self:DoBisha(a.bishaSUPER, a.bishaSUPERQi, true) then return end
-		if ok("bishaUP", "bishaUP") and self:DoBisha(a.bishaUP, a.bishaUPQi) then return end
-		if ok("bisha", "bisha") and self:DoBisha(a.bisha, a.bishaQi) then return end
-		if ok("skill2", "skill2") then self:DoSkill(a.skill2) return end
-		if ok("skill1", "skill1") then self:DoSkill(a.skill1) return end
-		if ok("zhao3", "zhao3") then self:DoSkill(a.zhao3) return end
-		if ok("zhao2", "zhao2") then self:DoSkill(a.zhao2) return end
-		if ok("attack", "attack") then self:DoAttack(a.attack) return end
-		if ok("zhao1", "zhao1") then self:DoSkill(a.zhao1) return end
-	end
-	if ok("dash", "dash") and self.act.jumpTimes >= 1 and self:HasEnergy(30, true) then
-		self:UseEnergy(30)
-		self.act.jumpTimes = 0
-		self:DoAction("瞬步")
-		self.state = S.DASH
-		self.allowBeHit, self.applyG = false, false
-		return
-	end
-	if a.airMove then
-		if k:moveLEFT() then self:Move(-self.speed, 0) elseif k:moveRIGHT() then self:Move(self.speed, 0) end
-	end
-	if self:AllowGhost() then
-		if k:ghostJump() and self:StartGhost(1) then return end
-		if k:ghostStep() and self:StartGhost(2) then return end
-	end
+function Fighter:DoDashAir(label)
+	if self.act.jumpTimes < 1 or not self:HasEnergy(30, true) then return end
+	self:UseEnergy(30)
+	self:DoAction(label or "瞬步")
+	self.state = S.DASH
+	self.allowBeHit, self.applyG = false, false
+	self.act.jumpTimes = 0
 end
 
--- Ghost step (FighterMcGhostHandler): L with down (step / drop) or up (jump).
+function Fighter:DoJump()
+	if self.act.jumpTimes <= 0 then return end
+	self:ClearAction()
+	self:ClearState()
+	self.doingAction, self.doingAirAction = nil, nil
+	self:GoFrame("起跳", false)
+	self.jumpDelay = 2
+	self.isJumping = true
+	self.state = S.JUMP
+end
+
+-- doJumpDown: drop through a platform at speed 5 (platforms refuse vy >= 2.5).
+function Fighter:DoJumpDown(label)
+	if self.touchBottom then return end
+	self:ClearState()
+	self:ClearAction()
+	self.act.jumpTimes = 0
+	self.vy = 5
+	self:SetDamping(0, 1)
+	self.y = self.y + 1
+	self.isDefense = false
+	if label and label ~= true then self:GoFrame(label, false) end
+	self.mcCtrl:setTouchFloor()
+end
+
+function Fighter:DoAirJump()
+	if self.act.jumpTimes <= 0 then return end
+	self:ClearAction()
+	self:ClearState()
+	self.doingAction, self.doingAirAction = nil, nil
+	self.jumpDelay = 1
+	self.isJumping = true
+	self.state = S.JUMP
+end
+
+function Fighter:DoAirAttack(label)
+	if not self.doingAction and self.act.airHitTimes <= 0 then return end
+	self.dy = self.dy + 3
+	self.act.airHitTimes = self.act.airHitTimes - 1
+	self.act.jumpTimes = 0
+	self:DoAction(label, true)
+	self.state = S.ATTACK
+end
+
+function Fighter:DoAirSkill(label)
+	if not self.doingAction and self.act.airHitTimes <= 0 then return end
+	if self.isJumping then
+		local k, act = self.input, nil
+		if k:zhao3() then act = "跳招-上" end
+		if k:zhao2() then act = "跳招-下" end
+		if act and self:HasLabel(act) then label = act end
+	end
+	self.act.airHitTimes, self.act.jumpTimes = 0, 0
+	self:DoAction(label, true)
+	self.state = S.SKILL
+end
+
+function Fighter:DoAirBisha(label, qi)
+	if not self.doingAction and self.act.airHitTimes <= 0 then return end
+	if not self:UseQi(qi or 100) then return end
+	self.state = S.BISHA
+	self.act.airHitTimes = 0
+	self:DoAction(label, true)
+end
+
+-- Ghost step (FighterMcGhostHandler): dash with down (step / drop) or up (jump).
 function Fighter:AllowGhost()
 	local s = self.state
 	return not self.ghost and s ~= S.BISHA and s ~= S.BISHA_SUPER and s ~= S.WANKAI and self.alive
@@ -798,139 +878,80 @@ end
 
 function Fighter:StartGhost(kind)
 	if self.qi < 60 or not self:HasEnergy(80, true) then return false end
-	if kind == 1 and self.act.jumpTimes <= 0 then return false end
 	self:UseQi(60)
 	self:UseEnergy(80)
 	self:FaceTarget()
 	self.ghost = {frames = 12, kind = kind}
 	self.allowBeHit, self.isCross = false, true
-	self.shadow = {0, 0, 255}
-	self:ClearAction()
-	self.doingAction = nil
-	self.isMoving, self.isDefensing, self.isDefense, self.isDashing = false, false, false, false
-	self.state = S.NORMAL
 	if kind == 0 then
-		self:SetVelocity(8 * self.dir, 0)
+		self.mcCtrl:move(8, 0)
 		self:GoFrame("走", true)
 	elseif kind == 1 then
-		self:SetVelocity(0, -12)
+		self.mcCtrl:move(0, -12)
 		self:SetDamping(0, 0.1)
 		self:GoFrame("跳", false)
 		self.act.jumpTimes = self.act.jumpTimes - 1
 	else
-		self:SetVelocity(0, 15)
+		self.mcCtrl:move(0, 15)
 		self:GoFrame("落", false)
 	end
-	self.battle.fx:Named("ghost_step", self.x, self.y - 40, self.dir)
-	self.battle.ghostOwner = self
+	-- FighterEffectCtrl.ghostStep: blue afterimages, the black backdrop, only this fighter runs.
+	self.battle.fx:StartShadow(self, 0, 0, 255)
+	self.battle.fx:GhostStep(self)
 	return true
 end
 
+-- renderGhostStep: `if (_ghostStepFrame-- <= 0)` with 0.4 s of animate frames.
 function Fighter:RenderGhost()
 	local g = self.ghost
-	g.frames = g.frames - 1
-	if g.frames < 0 then
+	local n = g.frames
+	g.frames = n - 1
+	if n <= 0 then
 		if g.kind == 1 then
 			local vy = self.vy
 			self.isJumping = false
 			self:EndGhost()
 			self:SetVelocity(0, vy)
 			self:SetDamping(0, -vy / 10)
-			self.act.airMove = true
+			self.mcCtrl:setAirMove(true)
 			return
 		end
 		self:EndGhost()
-		return
 	end
-	if g.kind == 2 and self.touchBottom then self:EndGhost() end
+	if self.ghost and g.kind == 2 and self.touchBottom then self:EndGhost() end
 end
 
 function Fighter:EndGhost()
 	self.ghost = nil
-	self.shadow = nil
-	if self.battle.ghostOwner == self then self.battle.ghostOwner = nil end
+	self.battle.fx:EndShadow(self)
+	self.battle.fx:EndGhostStep(self)
 	self:FaceTarget()
 	self:Idle()
 end
 
-function Fighter:DoAirAttack(label)
-	if not (self.doingAction or self.act.airHitTimes > 0) then return false end
-	self.act.airHitTimes = self.act.airHitTimes - 1
-	self.act.jumpTimes = 0
-	self.isJumping = false
-	self:DoAction(label, true)
-	self.state = S.ATTACK
-	return true
-end
-
-function Fighter:DoAirSkill(label)
-	if not (self.doingAction or self.act.airHitTimes > 0) then return false end
-	local k = self.input
-	if self.isJumping then
-		if k.up and self:HasLabel("跳招-上") then label = "跳招-上"
-		elseif k.down and self:HasLabel("跳招-下") then label = "跳招-下" end
-	end
-	self.act.airHitTimes, self.act.jumpTimes = 0, 0
-	self.isJumping = false
-	self:DoAction(label, true)
-	self.state = S.SKILL
-	return true
-end
-
-function Fighter:DoAirBisha(label)
-	if not (self.doingAction or self.act.airHitTimes > 0) then return false end
-	if not self:UseQi(self.act.bishaAIRQi or 100) then return false end
-	self.act.airHitTimes = 0
-	self.isJumping = false
-	self:DoAction(label, true)
-	self.state = S.BISHA
-	return true
-end
-
-function Fighter:TouchFloor()
-	self.wasInAir = false
-	local act = self.act.touchFloor
-	if not act and self.isFalling then act = "落地" end
-	self.act.airHitTimes, self.act.jumpTimes = 1, 2
-	if not act then return end
-	self.isJumping = false
-	self.battle.fx:Effect("touch_floor", self.x, self.y, self.dir)
-	if act == "落地" then
-		self:DoAction(act, false, {call = function() self.mcCtrl:setAttack() end, delay = 1})
-		self.state = S.NORMAL
-	else
-		self:DoAction(act)
-	end
-end
-
--- FighterMcAirHandler: drop through a platform at speed 5 (platforms refuse vy >= 2.5).
-function Fighter:DoJumpDown()
-	self:Fall()
-	self.y = self.y + 1
-	self:SetVelocity(0, 5)
-	self:SetDamping(0, 1)
-	self.act.jumpTimes = 0
-end
-
 -- Bankai -------------------------------------------------------------------------------
 
+-- renderWanKaiCtrl: attack + jump (+ up / down). Early in 砍1 each falls back to 万解 / 万解W / 万解S.
+-- A bankai input ends the tick even when it cannot be paid for.
 function Fighter:RenderWanKai()
-	local k = self.input
-	if not k:waiKai() then return false end
-	local a = self.act
-	-- waiKai / waiKaiW (+up) / waiKaiS (+down); early in 砍1 each falls back to 万解 / 万解W / 万解S.
-	local key = k.up and "waiKaiW" or (k.down and "waiKaiS" or "waiKai")
-	local label = a[key]
-	if not label and self:CurLabel() == "砍1" and self.doActionFrame < 2 then
-		label = ({waiKai = "万解", waiKaiW = "万解W", waiKaiS = "万解S"})[key]
+	if not self.battle.actionEnable then return false end
+	local k, a = self.input, self.act
+	local function check(win, fallback)
+		if win then self:DoWaiKai(win) return true end
+		if self.doingAction == "砍1" and self.doActionFrame < 2 then self:DoWaiKai(fallback) return true end
+		return false
 	end
-	if not label or not self:HasLabel(label) then return false end
-	if not self:UseQi(300) then return false end
+	if k:waiKai() then return check(a.waiKai, "万解") end
+	if k:waiKaiW() then return check(a.waiKaiW, "万解W") end
+	if k:waiKaiS() then return check(a.waiKaiS, "万解S") end
+	return false
+end
+
+function Fighter:DoWaiKai(label)
+	if not self:HasLabel(label) or not self:UseQi(300) then return end
 	self.state = S.WANKAI
 	self:DoAction(label)
-	self.state = S.WANKAI
 	self.allowBeHit = false
-	return true
 end
 
 -- Hurt (FighterMcHurtCtrl) ----------------------------------------------------------------
@@ -972,7 +993,7 @@ function Fighter:BehindOf(owner)
 end
 
 function Fighter:DoHurt(h, rect)
-	self.battle.fx:HitEffect(h, rect, false, self)
+	self.battle.fx:HitEffect(h, rect, self)
 	self.hurtHit = h
 	self:LoseHp(damageOf(h))
 	self.allowBeHit, self.beHitGap = false, 4
@@ -992,6 +1013,7 @@ function Fighter:DoHurtAnimate(h)
 		if hy <= 0 then hy = hy - 3 end
 	elseif hy < 0 then
 		hy = hy - 6
+		self.isTouchFloor = false
 	end
 	self:ClearState()
 	self:ClearAction()
@@ -1033,9 +1055,9 @@ function Fighter:RenderHurtAnimate()
 		self:Voice("die")
 		return
 	end
-	self.justHurtResume = true
+	-- hurtResume: back on the floor without a landing.
+	if not self.inAir and not self.isTouchFloor then self.isTouchFloor = true end
 	self:Idle()
-	self.allowBeHit = false
 	self.battle:OnHurtResume(self)
 end
 
@@ -1051,10 +1073,9 @@ function Fighter:DoDefenseHit(h, rect)
 	self.defenseHit = h
 	local cost = h.isBreakDef and self.energyMax * 0.9 or math.min(dmg * 0.2, 50)
 	cost = BVNRuntime.INT(cost)
-	self.battle.fx:HitEffect(h, rect, true, self)
 	if not self:HasEnergy(cost, false) then
 		self:UseEnergy(cost)
-		self:DoBreakDefense(h)
+		self:DoBreakDefense(h, rect)
 		return
 	end
 	self:UseEnergy(cost)
@@ -1067,9 +1088,10 @@ function Fighter:DoDefenseHit(h, rect)
 	end
 	self:SetVelocity(h.hitx * (h.owner and h.owner.dir or 1), 0)
 	self:SetDamping(1, 0)
+	self.battle.fx:DefenseEffect(h, rect, self.defenseType, self)
 end
 
-function Fighter:DoBreakDefense(h)
+function Fighter:DoBreakDefense(h, rect)
 	self:LoseHp(damageOf(h) * 0.1)
 	self.allowBeHit, self.beHitGap = false, h.hurtType == 1 and 10 or 4
 	self.overload = false
@@ -1082,7 +1104,11 @@ function Fighter:DoBreakDefense(h)
 	self.state = S.HURT
 	self:SetVelocity(hx, 0)
 	self:SetDamping(0.1, 0)
-	self.battle.fx:Named("break_def", self.x, self.y - 50, self.dir)
+	if rect then
+		local r = rect
+		self.battle.fx:DefenseEffect(h, r, self.defenseType, self)
+		self.battle.fx:Effect("break_def", r[1] + r[3] * 0.5, r[2] + r[4] * 0.5, self.dir)
+	end
 end
 
 function Fighter:DoSteelHurt(h, rect)
@@ -1103,7 +1129,15 @@ function Fighter:DoSteelHurt(h, rect)
 	end
 	if self.hp <= 0 then self.hp = 0; self:DoHurt(h, rect) return end
 	self.allowBeHit, self.beHitGap = false, h.hurtType == 1 and 10 or 4
-	self.battle.fx:SteelEffect(h, rect)
+	self.battle.fx:SteelEffect(h, rect, self)
+end
+
+-- FighterEffectCtrl.hitFloor: a floor impact effect and a vertical shake of twice the power.
+function Fighter:HitFloor(effect, pow)
+	if self.musouEnemy and not self.musouBoss and pow > 1 then pow = 1 end
+	if pow > 0 then self.battle.fx:Shake(0, pow * 2, 0) end
+	self.battle.fx:Effect(effect, self.x, self.y)
+	if effect == "hit_floor_heavy" then self.battle.fx:Effect("hit_floor_yan", self.x, self.y) end
 end
 
 -- Launch state machine (FighterMC.playHurtFly / renderHurtFly).
@@ -1123,7 +1157,6 @@ function Fighter:PlayHurtFly(hx, hy, showBeHit)
 	self:SetDamping(0, 0.5)
 	m.hurtFly = 1
 	m.yMin = self.y
-	m.stateFrames = 0
 	m.hity = hy
 end
 
@@ -1136,51 +1169,47 @@ function Fighter:PlayHurtDown()
 		m.hurtFly = 4
 		self.state = S.HURT_DOWN
 	end})
-	self.battle.fx:Shake(4)
+	self:HitFloor("hit_floor_low", 2)
 	self:SetDamping(2, 0)
 end
 
 function Fighter:RenderHurtFly()
 	local m = self.fmc
-	m.stateFrames = (m.stateFrames or 0) + 1
 	if m.hurtFly == 1 then
 		m.yMin = math.min(m.yMin, self.y)
 		m.hurtFlyFrame = m.hurtFlyFrame - 1
 		if m.hurtFlyFrame <= 0 and not self.inAir then
-			self:GoFrame("击飞_落", false)
-			m.hurtFly, m.stateFrames = 2, 0
+			self:GoFrame("击飞_落", true)
+			m.hurtFly = 2
 		end
 	elseif m.hurtFly == 2 then
-		if m.stateFrames >= 2 then
+		if m.curFrameCount >= 2 then
 			local drop = self.y - m.yMin
 			if m.heavy then
 				self:GoFrame("击飞_倒", false)
 				self.state = S.HURT_DOWN
 				self:SetDamping(4, 0)
 				m.downFrame = 30
-				self.battle.fx:Shake(2 * clamp(drop * 0.04 * (1 + (m.hity or 0) * 0.1), 2, 5))
-				self.battle.fx:Effect("hit_floor_heavy", self.x, self.y, self.dir)
-				m.hurtFly, m.stateFrames = 4, 0
+				self:HitFloor("hit_floor_heavy", clamp(drop * 0.04 * (1 + (m.hity or 0) * 0.1), 2, 5))
+				m.hurtFly = 4
 			else
 				self:GoFrame("击飞_弹", false)
 				self.vy = -clamp(drop * 0.04, 3, 8)
 				self.state = S.HURT_DOWN_TAN
-				-- FighterEffectCtrl.hitFloor doubles the power; the clamped bounce speed is >= 3.
-				self.battle.fx:Shake(6)
-				self.battle.fx:Effect("hit_floor", self.x, self.y, self.dir)
-				m.hurtFly, m.stateFrames = 3, 0
+				-- The clamped bounce speed is >= 3, so the shake power is always 3.
+				self:HitFloor("hit_floor", 3)
+				m.hurtFly = 3
 				self.downCounter = 1
 			end
 		end
 	elseif m.hurtFly == 3 then
-		if m.stateFrames >= 2 and not self.inAir then
+		if m.curFrameCount >= 2 and not self.inAir then
 			self:GoFrame("击飞_倒", false)
 			self:SetDamping(2, 0)
 			m.downFrame = 15
 			self.state = S.HURT_DOWN
-			self.battle.fx:Effect("hit_floor_low", self.x, self.y, self.dir)
-			self.battle.fx:Shake(2)
-			m.hurtFly, m.stateFrames = 4, 0
+			self:HitFloor("hit_floor_low", 1)
+			m.hurtFly = 4
 		end
 	elseif m.hurtFly == 4 then
 		if not self.alive then
@@ -1199,24 +1228,32 @@ function Fighter:RenderHurtFly()
 end
 
 -- Quick get-up while bouncing (T rate).
+-- FighterMcHurtCtrl.renderHurtFlying: quick get-up (受身) within 20 T of a bounce.
 function Fighter:RenderHurtFlying()
+	if not self.inAir then self.isTouchFloor = true end
+	if not self.alive then return end
 	if self.state == S.HURT_DOWN_TAN then self.downCounter = 1 end
 	if (self.downCounter or 0) > 0 then
+		if not self.battle.actionEnable then return end
 		self.downCounter = self.downCounter + 1
-		if self.downCounter < 20 and self.battle.actionEnable and self.doingAction ~= "起身" and self.input:dashJump()
-			and self.currentHurtDamage <= 240 and self:HasEnergy(30) and self.alive then
-			self.fmc.hurtFly = 0
-			self.isHurtFlying = false
-			self:UseEnergy(30)
-			local vx = self.vx
-			self:DoAction("起身")
-			self.allowBeHit = false
-			self.vx = vx
-			-- setDamping(vecx * 0.1) is signed: a negative speed is never damped.
-			self.dx = vx * 0.1
-			self.battle:OnHurtResume(self)
+		if self.downCounter < 20 and self.input:dashJump() then
+			self:DoHurtDownJump()
+			self.downCounter = 0
 		end
 	end
+end
+
+function Fighter:DoHurtDownJump()
+	if self.doingAction == "起身" or self.currentHurtDamage > 240 or not self:HasEnergy(30) then return end
+	self.fmc.hurtFly = 0
+	self:UseEnergy(30)
+	local vx = self.vx
+	self:DoAction("起身")
+	self.allowBeHit = false
+	self.vx = vx
+	-- setDamping(vecx * 0.1) is signed: a negative speed is never damped.
+	self.dx = vx * 0.1
+	self.battle:OnHurtResume(self)
 end
 
 -- Burst / substitution while staggered (T rate).
@@ -1230,44 +1267,53 @@ function Fighter:RenderHurtBreak()
 	self:UseEnergy(100)
 	self.isHurting = false
 	if (self.char.comic_type or 0) == 1 then
+		-- FighterMain.replaceSkill: substitution 250 ahead, untouchable for 30 A.
+		self.battle.fx:ReplaceSkill(self)
 		self:Move(250 * self.dir, 0)
 		self:Idle()
-		self.allowBeHit, self.beHitGap = false, 30
+		self.allowBeHit = false
+		self:RenderAnimate()
 		self:FaceTarget()
-		self.battle.fx:Named("replaceSp", self.x, self.y - 40, self.dir)
-		self.battle:Pause(60)
+		self.replaceSkillFrame = 30
 	else
-		self:Idle()
+		-- FighterMain.energyExplode (hitx = 15 * direct, which the hurt code multiplies by direct again).
+		self.battle.fx:EnergyExplode(self)
 		self.steel, self.steelSuper = true, true
-		self.explodeSteelFrame = 60
-		local h = newHitVO("explode", {power = 50, hitx = 15, hity = 0, hitType = 5, hurtType = 1}, self)
+		local h = newHitVO("explode", {power = 50, hitx = 15 * self.dir, hity = 0, hitType = 5, hurtType = 1}, self)
 		local r = {self.x - 100, self.y - 200, 200, 210}
 		self.explodeHit = {h, r}
 		self.explodeHitFrame = 10
+		self.explodeSteelFrame = 60
 		self.allowBeHit = false
-		self.battle.fx:Named("explodeSp", self.x, self.y - 60, self.dir)
-		self.battle:Pause(42)
 	end
+	self.battle:OnHurtResume(self)
 end
 
--- Move-target: drag the opponent toward an aim point (T rate).
+-- Move-target (FighterMcActionCtrl.renderMoveTarget): pin the opponent to a child of the
+-- action clip (followmc), or step it toward a point at speed * SPEED_PLUS per tick.
 function Fighter:RenderMoveTarget()
 	local p = self.moveTarget
 	local t = self:Target()
 	if not t then return end
-	local ax, ay = p.x or 0, p.y or 0
+	local ax, ay
 	if p.followmc then
-		local cx, cy = self:ChildPos(p.followmc)
-		if not cx then return end
-		ax, ay = cx, cy
+		local f = self:Frame()
+		local c = f and f.hits and f.hits["@" .. p.followmc]
+		if not c then return end
+		ax, ay = self.x + c[1] * self.dir, self.y + c[2]
+	else
+		ax, ay = p.x or 0, p.y or 0
 	end
 	local spd = p.speed
 	if spd and spd ~= 0 then
-		local sx = type(spd) == "table" and (spd.x or 0) or spd
-		local sy = type(spd) == "table" and (spd.y or 0) or spd
-		sx, sy = sx * 0.5, sy * 0.5
-		if math.abs(t.x - ax) <= sx then t.x = ax else t.x = t.x + sign(ax - t.x) * sx end
-		if sy ~= 0 then t.vy = sign(ay - t.y) * sy; t.dy = 1 end
+		local sx = (type(spd) == "table" and (spd.x or 0) or spd) * 0.5
+		local sy = (type(spd) == "table" and (spd.y or 0) or spd) * 0.5
+		if sx > 0 then
+			if t.x > ax + sx then t.x = t.x - sx end
+			if t.x < ax - sx then t.x = t.x + sx end
+			if t.y > ay + sy then t.vy, t.dy = -sy, 1 end
+			if t.y < ay - sy then t.vy, t.dy = sy, 1 end
+		end
 	else
 		t.x, t.y = ax, ay
 	end
@@ -1300,6 +1346,7 @@ function Fighter:RenderBuffs()
 		b.frames = b.frames - 1
 		if b.frames <= 0 then
 			if param == "attackRate" then self:SetAttackRate(b.resume) else self[param] = b.resume end
+			b.done = true
 			self.buffs[param] = nil
 		end
 	end
@@ -1314,6 +1361,19 @@ function Fighter:useEnergy(v) self:UseEnergy(v or 0) end
 function Fighter:addHp(v) self.hp = math.min(self.hpMax, self.hp + (v or 0)) end
 function Fighter:loseHp(v) self:LoseHp(v or 0) end
 function Fighter:getIsTouchSide() return self.touchSide end
+function Fighter:getDisplay() return BVNClip.Facade(self) end
+
+-- Colour transforms (changeColor / resumeColor): {r, g, b} offsets over the base colour.
+function Fighter:ChangeColor(ct) self.color = ct end
+function Fighter:ResumeColor() self.color = self.colorBase end
+
+-- The current pose as world-space image draws, for afterimages.
+function Fighter:Snapshot()
+	local fo = self.formOffset
+	local out = {}
+	BVNClip.Draw(self.clip, self.x, self.y, self.dir, {capture = out}, {fo[3], 0, 0, fo[4], fo[1], fo[2]})
+	return #out > 0 and out or nil
+end
 
 -- Voices ------------------------------------------------------------------------------------
 

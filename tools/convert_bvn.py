@@ -209,6 +209,10 @@ class Converter:
             if nm and nm not in SPECIAL_NAMES and obj["cid"] in self.swf.sprites:
                 m = obj["m"]
                 out["@" + nm] = [round(m[4], 1), round(m[5], 1)]
+                # Its bounds too, for scripts that hitTest a named child (ulquiorra's sh20).
+                r = swfxml.transform_rect(m, self.swf.frame1_bounds(obj["cid"]))
+                if r:
+                    out["#" + nm] = [round(r[0], 1), round(r[1], 1), round(r[2] - r[0], 1), round(r[3] - r[1], 1)]
         return out
 
     @staticmethod
@@ -420,6 +424,9 @@ def roster():
         out.append((f.stem, f, False))
     for f in sorted((ASSETS / "fighter" / "fz").glob("*.swf")):
         out.append(("fz_" + f.stem, f, True))
+    # Musou mooks (fighter.json urls.file "xb/<name>.swf" -> data/bvn/BVNF_xb_<name>.lua).
+    for f in sorted((ASSETS / "fighter" / "xb").glob("*.swf")):
+        out.append(("xb/" + f.stem, f, False))
     return out
 
 

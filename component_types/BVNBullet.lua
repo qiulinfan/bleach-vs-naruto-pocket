@@ -65,7 +65,7 @@ function BVNBullet.Fire(battle, owner, name, params, hitModel)
 	if not px then return nil end
 	local b = setmetatable({kind = "bullet", battle = battle, owner = owner, team = owner.team, name = name}, Bullet)
 	b.char = owner.char
-	b.clip = BVNClip.New(owner.char, sid, nil, b)
+	b.clip = BVNClip.New(owner.char, sid, BVNClip.LayerFor(owner), b)
 	if not b.clip then return nil end
 	BVNClip.Enter(b.clip, 1)
 	local model = hitModel or owner.hitModel
@@ -91,19 +91,27 @@ function BVNBullet.Fire(battle, owner, name, params, hitModel)
 	return b
 end
 
-function Bullet:Area()
-	local f = self.clip.data.frames[self.clip.frame]
-	if not f then return nil end
-	local r = f.main or (f.hits and next(f.hits) and select(2, next(f.hits)))
-	if not r or #r ~= 4 then
-		local bd = self.clip.data.bounds
-		if not bd then return nil end
-		r = {bd[1], bd[2], bd[3] - bd[1], bd[4] - bd[2]}
+-- Bullet.setHitVO: the hit area is fixed at spawn, from the "main" child or the whole
+-- first frame.
+local function spawnArea(clip)
+	local f = clip.data.frames[1]
+	if f and f.main then return f.main end
+	if f and f.img then
+		local sz = Image.GetSize(f.img)
+		return {f.x, f.y, sz.x, sz.y}
 	end
-	return worldRect(self, r)
+	local bd = clip.data.bounds
+	if bd then return {bd[1], bd[2], bd[3] - bd[1], bd[4] - bd[2]} end
+	return nil
 end
 
-function Bullet:BodyArea() if self.dead or self.hitOver then return nil end return self:Area() end
+function Bullet:Area()
+	self.area = self.area or spawnArea(self.clip)
+	return self.area and worldRect(self, self.area)
+end
+
+-- The body stays hittable after the hit; the bullet only stops hitting.
+function Bullet:BodyArea() if self.dead then return nil end return self:Area() end
 
 function Bullet:CurrentHits()
 	if self.dead or self.hitOver or not self.hit then return {} end
@@ -134,7 +142,7 @@ function Bullet:Render()
 	local m = self.battle.map
 	if self.y > m.playerBottom then
 		self:OnHit(nil)
-		self.battle.fx:Shake(2, 0.2)
+		self.battle.fx:Shake(0, 1, 200)
 		return
 	end
 	if self.x > m.right + 20 or self.x < m.left - 20 or self.y > m.bottom + 20 then self.dead = true end
@@ -184,13 +192,9 @@ function Bullet:OnHit(target)
 end
 
 function Bullet:DoHit()
-	if BVNClip.HasLabel(self.clip, "hit") then
-		BVNClip.Goto(self.clip, "hit")
-		self.stopped = true
-		self.hitOver = true
-	else
-		self.dead = true
-	end
+	if not self.stopped and BVNClip.HasLabel(self.clip, "hit") then BVNClip.Goto(self.clip, "hit") end
+	self.stopped = true
+	self.hitOver = true
 end
 
 function Bullet:BeHit(h, _, src)
@@ -200,6 +204,60 @@ end
 
 function Bullet:Draw(order)
 	BVNClip.Draw(self.clip, self.x, self.y, self.dir, {order = order})
+end
+
+-- Follow effect (FollowEffectView) ----------------------------------------------------
+-- A child clip detached from the fighter that keeps its offset from the fighter and
+-- plays on its own; it ends when the fighter's timeline jumps, or at its last frame
+-- but one.
+
+local Follow = {}
+Follow.__index = Follow
+
+function BVNBullet.Follow(battle, owner, name, under)
+	local px, py, sid = spawnOf(owner, name)
+	if not px then return nil end
+	local v = setmetatable({kind = "follow", battle = battle, owner = owner, team = owner.team, name = name, under = under}, Follow)
+	v.char = owner.char
+	v.clip = BVNClip.New(owner.char, sid, BVNClip.LayerFor(owner), v)
+	if not v.clip then return nil end
+	BVNClip.Enter(v.clip, 1)
+	v.cx, v.cy = (px - owner.x) * owner.dir, py - owner.y
+	v.dir = owner.dir
+	v.x, v.y = px, py
+	v.lastFrame = owner.clip.frame
+	v.loopFrame = BVNClip.HasLabel(v.clip, "loop_start") and "loop_start" or 1
+	v.drawUnder = under
+	return v
+end
+
+function Follow:BodyArea() return nil end
+function Follow:RawBody() return nil end
+function Follow:CurrentHits() return {} end
+function Follow:BeHit() end
+
+function Follow:Render()
+	local o = self.owner
+	self.dir = o.dir
+	self.x, self.y = o.x + self.cx * o.dir, o.y + self.cy
+	local cur = o.clip.frame
+	local d = cur - self.lastFrame
+	if d == 0 or d == 1 then self.lastFrame = cur else self.dead = true end
+end
+
+function Follow:RenderAnimate()
+	if self.dead then return end
+	local c = self.clip
+	BVNClip.Next(c)
+	BVNClip.AdvanceKids(c)
+	local l = BVNClip.LabelHere(c)
+	if l == "loop" then BVNClip.Goto(c, self.loopFrame)
+	elseif l == "remove" then self.dead = true
+	elseif c.frame >= #c.data.frames - 1 then self.dead = true end
+end
+
+function Follow:Draw(order)
+	BVNClip.Draw(self.clip, self.x, self.y, self.dir, {order = order, color = self.owner.color})
 end
 
 -- Attacker -------------------------------------------------------------------------
@@ -222,7 +280,7 @@ function BVNBullet.Attacker(battle, owner, name, params, hitModel)
 	a.char = owner.char
 	a.hitModel = hitModel or owner.hitModel
 	a.ctrl = setmetatable({a = a}, ctrlMT(BVNBullet.AttackerCtrl))
-	a.clip = BVNClip.New(owner.char, sid, nil, a)
+	a.clip = BVNClip.New(owner.char, sid, BVNClip.LayerFor(owner), a)
 	if not a.clip then return nil end
 	a.clip.inst.S_attacker_ctrler = a.ctrl
 	if a.clip.methods and a.clip.methods.setAttackerCtrler then BVNClip.Call(a.clip, "setAttackerCtrler", a.ctrl) end
@@ -325,7 +383,7 @@ function Attacker:Render()
 	if not self.crossMap then self.x = clamp(self.x, m.left, m.right) end
 	if self.hitTarget then
 		local f = self.clip.data.frames[self.clip.frame]
-		local r = f and f.hits and f.hits[self.hitTarget[1]]
+		local r = f and f.hits and (f.hits[self.hitTarget[1]] or f.hits["#" .. self.hitTarget[1]])
 		local t = self.owner:Target()
 		local body = t and t:RawBody()
 		if r and #r == 4 and body and BVNBattle.Intersects(worldRect(self, r), body) then
@@ -397,7 +455,7 @@ end
 
 function Assist:Go()
 	local owner = self.owner
-	self.clip = BVNClip.New(self.char, self.char.forms[1].sprite, nil, self)
+	self.clip = BVNClip.New(self.char, self.char.forms[1].sprite, BVNClip.LayerFor(self), self)
 	local inst = self.clip.inst
 	inst.S_assisterCtrler = self.ctrl
 	if self.clip.methods and self.clip.methods.setAssistCtrler then BVNClip.Call(self.clip, "setAssistCtrler", self.ctrl) end
@@ -454,9 +512,15 @@ function SC:setDirectToTarget()
 	local t = self.a.owner:Target()
 	if t then self.a.dir = t.x >= self.a.x and 1 or -1 end
 end
+-- AssisterCtrler.moveToTarget: values go through Number() (true is 1).
 function SC:moveToTarget(x, y, setDirect)
-	AC.moveToTarget(self, x, y)
-	if setDirect == nil or BVNRuntime.T(setDirect) then self:setDirectToTarget() end
+	local a = self.a
+	local t = a.owner:Target()
+	if not t then return end
+	local function num(v) if v == true then return 1 elseif v == false then return 0 end return tonumber(v) or 0 end
+	if x ~= nil then a.x = t.x + num(x) * a.dir end
+	if y ~= nil then a.y = t.y + num(y) end
+	if setDirect == nil or BVNRuntime.T(setDirect) then a.dir = a.x < t.x and 1 or -1 end
 end
 function SC:justHit(id, frame, inclDef)
 	local ok = fighterOf(self.a).fCtrl:justHit(id, inclDef)
@@ -469,7 +533,7 @@ function SC:addAttacker(name, params) self.a.battle:AddAttacker(self.a, name, pa
 function SC:checkHitOwner(name)
 	local a = self.a
 	local f = a.clip and a.clip.data.frames[a.clip.frame]
-	local r = f and f.hits and f.hits[name]
+	local r = f and f.hits and (f.hits[name] or f.hits["#" .. name])
 	local body = a.owner:RawBody()
 	if not r or #r ~= 4 or not body then return false end
 	return BVNBattle.Intersects(worldRect(a, r), body)

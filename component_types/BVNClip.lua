@@ -39,16 +39,148 @@ instMT.__index = function(t, k)
 	if k == "currentLabel" or k == "currentFrameLabel" then return BVNClip.Label(clip) end
 	-- A detached sprite's root clip is placed at the sprite's world position (x / y in scripts).
 	if (k == "x" or k == "y") and clip.owner and clip.owner.clip == clip and clip.owner.kind ~= "fighter" then return clip.owner[k] end
+	-- DisplayObject defaults; scripts that change alpha / visible on `this` affect drawing.
+	if k == "alpha" or k == "scaleX" or k == "scaleY" then return 1 end
+	if k == "visible" then return true end
+	if k == "rotation" or k == "x" or k == "y" then return 0 end
+	-- Getters the scripts define in AS3 ($self_main, $key) resolve to the runtime objects.
+	if k == "S_self_main" then return clip.owner and BVNClip.Facade(clip.owner) end
+	if k == "S_key" then
+		local o = clip.owner
+		local f = o and (o.input and o or (o.owner and (o.owner.input and o.owner or o.owner.owner)))
+		return f and f.input
+	end
 	local methods = clip.methods
 	local m = methods and methods[k]
-	if m ~= nil then return m end
+	if m ~= nil then
+		-- AS3 methods are bound closures (scripts pass this.method as a callback).
+		local bound = clip.bound
+		if not bound then bound = {}; clip.bound = bound end
+		local b = bound[k]
+		if not b then
+			b = function(a, ...)
+				if a == t then return m(t, ...) end
+				return m(t, a, ...)
+			end
+			bound[k] = b
+		end
+		return b
+	end
 	m = ClipAPI[k]
+	if m == nil then
+		-- A named data child of the current frame (hit checkers such as sh10): a display
+		-- object that can hitTest another.
+		local f = clip.data.frames[clip.frame]
+		local r = f and f.hits and (f.hits[k] or f.hits["#" .. k])
+		local o = clip.owner
+		if r and #r == 4 and o and o.clip == clip and o.WorldRect then
+			local wr = o:WorldRect(r)
+			return {hitTestObject = function(_, other)
+				local b = BVNClip.BoundsOf(other)
+				return b ~= nil and BVNClip.Hit(wr, b)
+			end, x = r[1], y = r[2], width = r[3], height = r[4]}
+		end
+	end
 	if m ~= nil then return m end
 	-- Plain-table controllers (fighters, bullets) answer unknown calls with a no-op.
 	return nil
 end
 
+-- The AS3 view of a game sprite (FighterMain, FighterAttacker, Bullet) for scripts that reach
+-- it directly: property names map to the runtime's fields.
+local FIELD = {isAllowBeHit = "allowBeHit", isAlive = "alive", isSteelBody = "steel", isSuperSteelBody = "steelSuper",
+	actionState = "state", direct = "dir", isApplyG = "applyG", isCross = "isCross", hp = "hp", hpMax = "hpMax",
+	qi = "qi", energy = "energy", fzqi = "fzqi", x = "x", y = "y", isInAir = "inAir", isTouchBottom = "touchBottom"}
+local facadeMT = {
+	__index = function(t, k)
+		local sp = rawget(t, "_sp")
+		local f = FIELD[k]
+		if f then return sp[f] end
+		if k == "owner" then return sp.owner and BVNClip.Facade(sp.owner) end
+		if k == "mc" then return sp.clip and sp.clip.inst end
+		if k == "team" then return {id = sp.team, name = "p" .. tostring(sp.team or 1)} end
+		if k == "useEnergy" then return function(_, v) if sp.UseEnergy then sp:UseEnergy(v or 0) end end end
+		if k == "hasEnergy" then return function(_, v, o) return sp.HasEnergy and sp:HasEnergy(v or 0, BVNRuntime.T(o)) or false end end
+		if k == "delayCall" then return function(_, fn, n) if sp.DelayCall then sp:DelayCall(fn, n or 1) end end end
+		if k == "setAnimateFrameOut" then return function(_, fn, n) if sp.FrameOut then sp:FrameOut(fn, n or 1) end end end
+		if k == "setVecX" then return function(_, v) sp.vx = v or 0 end end
+		if k == "setVecY" then return function(_, v) sp.vy = v or 0 end end
+		if k == "setVelocity" then return function(_, x, y) if sp.SetVelocity then sp:SetVelocity(x, y) end end end
+		if k == "getVecX" then return function() return sp.vx or 0 end end
+		if k == "getVecY" then return function() return sp.vy or 0 end end
+		if k == "getIsTouchSide" then return function() return sp.touchSide or false end end
+		if k == "getOwner" then return function() return sp.owner and BVNClip.Facade(sp.owner) end end
+		if k == "getCtrler" then return function() return sp.fCtrl or (sp.ctrl) end end
+		if k == "getBuffCtrl" then return function() return sp.fCtrl and sp.fCtrl:getBuffCtrl() end end
+		if k == "getCurrentTarget" then return function() return sp.Target and BVNClip.Facade(sp:Target()) end end
+		if k == "getDisplay" then return function() return t end end
+		if k == "onRemove" then return function() sp.dead = true end end
+		if k == "hitTestObject" then
+			return function(_, other)
+				local a = sp.RawBody and sp:RawBody() or (sp.Area and sp:Area())
+				local b = BVNClip.BoundsOf(other)
+				return a ~= nil and b ~= nil and BVNClip.Hit(a, b)
+			end
+		end
+		if k == "addQi" then return function(_, v) if sp.AddQi then sp:AddQi(v or 0) end end end
+		if k == "loseHp" then return function(_, v) if sp.LoseHp then sp:LoseHp(v or 0) end end end
+		if k == "idle" then return function() if sp.Idle then sp:Idle() end end end
+		local v = sp[k]
+		if type(v) == "function" then return function(_, ...) return v(sp, ...) end end
+		return v
+	end,
+	__newindex = function(t, k, v)
+		local sp = rawget(t, "_sp")
+		sp[FIELD[k] or k] = v
+	end,
+}
+local facades = setmetatable({}, {__mode = "k"})
+
 BVNClip = {
+	-- The game layer a detached sprite's clip sits in (`parent` of its root clip).
+	Layer = {
+		setChildIndex = function(_, child, i)
+			local o = child and rawget(child, "_clip") and rawget(child, "_clip").owner
+			if o then o.drawUnder = (i == 0) end
+		end,
+		getChildIndex = function() return 0 end,
+		addChild = function() end,
+		removeChild = function() end,
+		numChildren = 0,
+	},
+
+	Hit = function(a, b)
+		return a[1] < b[1] + b[3] and b[1] < a[1] + a[3] and a[2] < b[2] + b[4] and b[2] < a[2] + a[4]
+	end,
+
+	-- World bounds of a display-like value: a facade, a sprite, or a {hitTestObject} child.
+	BoundsOf = function(v)
+		if type(v) ~= "table" then return nil end
+		local sp = rawget(v, "_sp") or v
+		if sp.RawBody then return sp:RawBody() end
+		if sp.Area then return sp:Area() end
+		return nil
+	end,
+
+	-- `parent` of a detached sprite's clip: the game layer, plus the owning fighter's
+	-- controllers (frame scripts written for the fighter's timeline still reach them).
+	LayerFor = function(owner)
+		local f = owner
+		while f and not f.fCtrl and f.owner do f = f.owner end
+		return setmetatable({S_mc_ctrler = f and f.mcCtrl, S_fighter_ctrler = f and f.fCtrl, S_effect_ctrler = f and f.effCtrl},
+			{__index = BVNClip.Layer})
+	end,
+
+	Facade = function(sp)
+		if not sp then return nil end
+		local f = facades[sp]
+		if not f then
+			f = setmetatable({_sp = sp}, facadeMT)
+			facades[sp] = f
+		end
+		return f
+	end,
+
 	-- char: BVNF_<id>; sid: sprite id; parent: the script instance seen as `parent`.
 	New = function(char, sid, parent, owner)
 		local data = char.sprites[sid]
@@ -151,6 +283,15 @@ BVNClip = {
 	Draw = function(clip, x, y, dir, opt, m)
 		local f = clip.data.frames[clip.frame]
 		if not f then return end
+		local inst = clip.inst
+		if rawget(inst, "visible") == false then return end
+		local ia = rawget(inst, "alpha")
+		if ia and ia < 1 and not opt.capture then
+			local o = {}
+			for k2, v2 in pairs(opt) do o[k2] = v2 end
+			o.alpha = math.floor((opt.alpha or 255) * math.max(0, ia))
+			opt = o
+		end
 		local a, b, c, d, tx, ty = 1, 0, 0, 1, 0, 0
 		if m then a, b, c, d, tx, ty = m[1], m[2], m[3], m[4], m[5], m[6] end
 		local order = opt.order or 20
@@ -181,11 +322,29 @@ BVNClip = {
 		local sy = det / (sx ~= 0 and sx or 1)
 		local wx = x + px * dir * s
 		local wy = y + py * s
-		local r, g, bl = 255, 255, 255
-		if opt.tint then r, g, bl = opt.tint[1], opt.tint[2], opt.tint[3] end
 		-- The engine flips a negatively scaled image in place, so a mirror about the
 		-- image's top-left corner needs the pivot on the flipped side.
 		local fx, fy = sx * s * dir, sy * s
-		Image.DrawEx(img, wx / 100, wy / 100, rot * dir, fx, fy, fx < 0 and 1 or 0, fy < 0 and 1 or 0, r, g, bl, opt.alpha or 255, order)
+		local pvx, pvy = fx < 0 and 1 or 0, fy < 0 and 1 or 0
+		if opt.capture then
+			opt.capture[#opt.capture + 1] = {img, wx / 100, wy / 100, rot * dir, fx, fy, pvx, pvy}
+			return
+		end
+		local r, g, bl = 255, 255, 255
+		if opt.tint then r, g, bl = opt.tint[1], opt.tint[2], opt.tint[3] end
+		local a = opt.alpha or 255
+		local c = opt.color
+		if c then
+			-- Flash colour offsets: negative ones darken (approximated by the multiplier),
+			-- positive ones add light in a second additive pass.
+			r = r * math.max(0, 255 + math.min(0, c[1])) / 255
+			g = g * math.max(0, 255 + math.min(0, c[2])) / 255
+			bl = bl * math.max(0, 255 + math.min(0, c[3])) / 255
+		end
+		Image.DrawEx(img, wx / 100, wy / 100, rot * dir, fx, fy, pvx, pvy, r, g, bl, a, order, nil, opt.blend)
+		if c and (c[1] > 0 or c[2] > 0 or c[3] > 0) then
+			Image.DrawEx(img, wx / 100, wy / 100, rot * dir, fx, fy, pvx, pvy, math.max(0, c[1]), math.max(0, c[2]), math.max(0, c[3]),
+				a, order, nil, "add")
+		end
 	end,
 }
