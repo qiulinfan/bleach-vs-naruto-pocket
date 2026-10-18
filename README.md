@@ -32,8 +32,12 @@ of the original ActionScript kernel.
 As in the original: S+J and W+J are skills, U / S+U / W+U are 招, I / W+I /
 S+I are ultimates (100 / 100 / 300 energy), J+K transforms when the character
 can, direction + J / U throws at close range.
-Menus: W/A/S/D to choose, J or Enter to confirm, K or Backspace to go back,
-I to switch a character's alternate form on the select screen.
+Menus (as in the original): W/A/S/D to choose, J/K/L/U/I/O or Enter to
+confirm (player 2 confirms with its attack key on the select screen), Escape
+or Backspace to go back or, during a fight, to pause. On the select screen an
+alternate form opens around its character; move onto it to pick it.
+OPTION sets the CPU level, key mode, life, time, sound and music volume and
+HP display; they are saved.
 
 ## Setting up the assets
 
@@ -76,8 +80,8 @@ From the engine checkout (`~/Desktop/pocket2d`):
 ./build/sdl3-release/game --project ../pocket2d-games/BleachVsNaruto
 ```
 
-Regression test (a CPU vs CPU match started from the title menu; needs the
-converted assets):
+Regression test (a CPU vs CPU match started through the title menu, select
+and VS screens; needs the converted assets):
 
 ```bash
 python3 tools/pocket test ../pocket2d-games/BleachVsNaruto
@@ -85,7 +89,11 @@ python3 tools/pocket test ../pocket2d-games/BleachVsNaruto
 
 Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_assist`, `p2_assist`, `map`,
 `mode`: `watch` / `cpu` / `pvp` / `training`, `level` 1-6, `skip_intro`),
-`set_qi` and `set_hp` on the `Game` actor.
+`set_qi`, `set_hp`, `end_match` (`winner`), `goto` (`stage`: `title`,
+`select`, `option`, `credits`, `howtoplay`, `logo`, `winner`, `continue`,
+`gameover`, `congratulations`), `set_option` and `options` on the `Game` actor.
+Runs that should not touch your saved options can set `POCKET_SAVE_ROOT` to a
+scratch directory.
 
 ## Credits and licenses
 
@@ -94,7 +102,7 @@ Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_a
   [BleachVsNaruto_TagAssets](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_TagAssets)
   (no license stated); the game configuration and the kernel this port follows
   come from [BleachVsNaruto](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto)
-  (GPL-3.0); the shared effects, their sounds and the fight HUD come from
+  (GPL-3.0); the shared effects, their sounds, the fight HUD and the interface screens come from
   [BleachVsNaruto_FlashSrc](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_FlashSrc)
   (GPL-3.0). This port is a private, non-commercial fan project.
 - *Bleach* and *Naruto* characters belong to their rights holders.
