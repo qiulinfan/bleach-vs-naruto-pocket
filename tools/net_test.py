@@ -266,9 +266,10 @@ def main():
         check(sa["started"] and sb["started"], "session starts on both")
         check(sa["seed"] == sb["seed"] and sa["mode"] == "pvp" == sb["mode"], "same seed and VS PEOPLE")
         # Fighter select: each player moves its own cursor with its own keys and picks with attack.
-        for i in range(60):
+        for i in range(150):
             fa = {"p1_attack": i % 6 == 0, "p1_move": 1 if i < 3 else 0}
-            fb = {"p1_attack": i % 6 == 3, "p1_move": -1 if i < 5 else 0}
+            # The guest picks well after the host (its cursor outlives the host's).
+            fb = {"p1_attack": i % 6 == 3 and i >= 21, "p1_move": -1 if i < 5 else 0}
             step(a, b, 4, fa, fb)
             if a.call("net_state")["phase"] == "battle":
                 break

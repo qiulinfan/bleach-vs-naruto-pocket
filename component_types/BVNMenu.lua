@@ -398,7 +398,7 @@ function Select:InitSelecters()
 	if self.flow == FLOWS.vspeople then
 		self:InitSelecter(1)
 		self:InitSelecter(2)
-		self.twoFin = false
+		self.twoFin, self.sideDone = false, {}
 	else
 		self:InitSelecter(1)
 	end
@@ -672,8 +672,11 @@ function Select:SelectDone(slt)
 	if slt.times < slt.count then slt.enabled = true end
 	if slt.times >= slt.count then
 		if self.flow == FLOWS.vspeople then
-			local other = self.slts[3 - slt.side]
-			if other and other.times >= other.count and not self.twoFin then
+			-- Both players done (the other side's cursor may already be gone:
+			-- it is destroyed when its own select animation ends).
+			self.sideDone = self.sideDone or {}
+			self.sideDone[slt.side] = true
+			if self.sideDone[1] and self.sideDone[2] and not self.twoFin then
 				self.twoFin = true
 				self:NextStep()
 			end
