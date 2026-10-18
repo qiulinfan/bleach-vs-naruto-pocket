@@ -38,6 +38,8 @@ BVNGame = {
 		if self.inited then return end
 		self.inited = true
 		BVNGame.current = self
+		-- Converted data never changes: netplay rollback snapshots leave it out.
+		Net.Static(BVNConfig, BVNFxData, BVNMaps, BVNMusouConfig, BVNUIData)
 		BVNRuntime.seed = 20261017
 		BVNSettings.Load()
 		self.mission = {id = 0}
@@ -445,25 +447,53 @@ BVNGame = {
 		elseif name == "options" then
 			return BVNSettings.Snapshot()
 		elseif name == "net_host" or name == "net_join" then
-			-- NET PLAY for tests: net_host {lan, port, team, relay}, net_join {room, relay} or {address} (LAN).
+			-- NET PLAY for tests: net_host {how = "room" | "lan" | "code", port, team, netcode, relay,
+			-- stun, discovery_port}; net_join {how, room | address | code, netcode, relay, stun}.
 			BVNTrans.Clear()
 			local st = BVNNet.New(self)
 			self:Go(st)
 			if args.team ~= nil then BVNNet.team = args.team end
+			if args.netcode then BVNNet.netcode = args.netcode end
 			BVNNet.relay = args.relay == true
 			BVNNet.lanPort = args.port
-			if name == "net_host" then
-				st.Host(args.lan == true)
-			else
-				st.view = args.address and "lan" or "code"
-				st.Join(args.address or args.room)
-			end
+			BVNNet.stun = args.stun
+			BVNNet.discoveryPort = args.discovery_port
+			local how = args.how or (args.lan and "lan") or (args.address and "lan") or (args.code and "code") or "room"
+			if name == "net_host" then st.Start(true, how)
+			else st.Start(false, how, args.room or args.address or args.code) end
 			return {view = st.view, message = st.message, status = Net.Status()}
+		elseif name == "net_code_connect" then
+			-- The code host takes the guest's code: {code}.
+			return {ok = Net.CodeConnect(args.code or "")}
+		elseif name == "net_discover" then
+			-- LAN discovery: {on}; returns the hosts found so far.
+			BVNNet.discoveryPort = args.discovery_port or BVNNet.discoveryPort
+			Net.Configure({game = "bleach_vs_naruto", discovery_port = BVNNet.discoveryPort})
+			if args.on ~= nil then Net.Discover(args.on) end
+			return {hosts = Net.Hosts()}
+		elseif name == "net_bench" then
+			-- Rollback snapshot cost of the current state: {n} saves, a load and a hash.
+			Net.Track(_G)
+			local n = args.n or 20
+			local t0 = os.clock()
+			for _ = 1, n do Net.Snapshot(0, "save") end
+			local t1 = os.clock()
+			Net.Snapshot(0, "load")
+			local t2 = os.clock()
+			local h = Net.Snapshot(0, "hash")
+			local t3 = os.clock()
+			return {objects = Net.Snapshot(0, "objects"), save_ms = (t1 - t0) * 1000 / n, load_ms = (t2 - t1) * 1000,
+				hash_ms = (t3 - t2) * 1000, hash = h}
+		elseif name == "net_synctest" then
+			-- A rollback sync test of whatever runs now (start a battle first): {frames}.
+			Net.Track(_G)
+			return {ok = Net.SyncTest(args.frames or 7)}
 		elseif name == "net_state" then
 			local ses = BVNNet.session
 			return {status = Net.Status(), phase = self.phase_name, mode = self.mode, team = self.team,
 				started = ses and ses.started or false, frame = ses and ses.frame, desync = ses and ses.desync,
-				hash = BVNNet.Hash(self), seed = BVNRuntime.seed, message = self.stage and self.stage.message}
+				hash = BVNNet.Hash(self), seed = BVNRuntime.seed, message = self.stage and self.stage.message,
+				lua_kb = math.floor(collectgarbage("count"))}
 		elseif name:sub(1, 6) == "musou_" then
 			return self:MusouCommand(name, args)
 		end

@@ -118,27 +118,44 @@ the submodules under `external/`; everything converted from them is ignored
   the battle's own `fx`). The original is mouse driven; the mouse works and
   the keyboard drives a pointer (map: arrows between open areas, attack /
   confirm selects, skill opens the team; dialogs: arrows, select, back).
-- NET PLAY (`BVNNet`): the engine's lockstep netplay (`Net`). Configured with
+- NET PLAY (`BVNNet`): the engine's netplay (`Net`). Configured with
   `local_prefix = "p1_"`, sides p1_ / p2_, shared confirm / back, automatic
-  delay. The host's payload carries the version string (`VERSION`; bump it when
-  gameplay changes), MODE (team) and the life / time / key-mode options. The
-  first lockstep tick (`BVNNet.Start`) on both machines seeds `BVNRuntime.seed`
-  from the session, applies the payload, clears transitions, screen input and
-  picks and opens the VS PEOPLE select. While `BVNScreen.net` is set, "menu"
-  input is either player, each side selects with its own attack (confirm is
-  shared), and `AnyKey` ignores raw keys. GoMenu during a session ends it
-  (`BVNNet.Stop`, both machines return to the NET PLAY screen); a lost peer
-  does the same with a message. Every 60 ticks `BVNNet.Hash` (seed, round,
-  time, fighters' x / y / hp / qi / energy / state / dir, sprite count) goes to
-  `Net.Checksum`; a desync shows a red warning. Room codes and LAN addresses
-  are typed with raw keys before the session starts. Gameplay must stay
-  deterministic: no raw keys, mouse, time or `math.random` in anything a
-  session reaches (musou is not reachable from NET PLAY).
+  delay, `game = "bleach_vs_naruto"` (LAN discovery), NETCODE rollback (default,
+  max 8 ticks) or lockstep, and `Net.Track(_G)`. Links: room code, LAN /
+  virtual LAN (direct host with discovery; the host screen lists
+  `Net.LocalAddresses()`), connection codes (CODE HOST / JOIN, clipboard copy
+  and paste). The host's payload carries the version string (`VERSION`; bump
+  it when gameplay changes), MODE (team) and the life / time / key-mode
+  options. The first session tick (`BVNNet.Start`) on both machines seeds
+  `BVNRuntime.seed` from the session, applies the payload, clears
+  transitions, screen input and picks and opens the VS PEOPLE select. While
+  `BVNScreen.net` is set, "menu" input is either player, each side selects
+  with its own attack (confirm is shared), and `AnyKey` ignores raw keys.
+  GoMenu during a session ends it (`BVNNet.Stop`, both machines return to the
+  NET PLAY screen); a lost peer does the same with a message. Every 60 ticks
+  `BVNNet.Hash` (seed, round, time, fighters' x / y / hp / qi / energy / state
+  / dir, sprite count) goes to `Net.Checksum`; a desync shows a red warning.
+  Room codes, addresses and codes are typed with raw keys before the session
+  starts.
+- Rollback: the snapshots walk everything reachable from the globals, so all
+  gameplay state must live in Lua tables (it does) and stay deterministic: no
+  raw keys, mouse, time or `math.random` in anything a session reaches (musou
+  is not reachable from NET PLAY), and no `pairs` over tables keyed by tables
+  or functions where the order matters (the stage's ENTER_FRAME listeners are
+  a list for that reason). Converted data is static (`Net.Static`: the
+  generated globals in `BVNGame.Init`, characters in `BVNRuntime.Character`,
+  UI movies in `BVNScreen.Load`) and must not be changed. A battle snapshot is
+  about 8,300 tables and closures: about 1 ms to save, 2.6 ms to restore;
+  a tick is about 0.4 ms. Snapshots keep up to ten states alive (Lua heap up
+  to ~85 MB in team battles), so agent runs with rollback pass
+  `--lua-heap-budget 268435456`.
 - Agent commands besides the fight ones: `goto` (`stage`: title, select,
   option, credits, howtoplay, logo, winner, continue, gameover,
   congratulations, worldmap, netplay; `mode`, `team`, `p1` / `p1_team`),
-  `net_host` (`lan`, `port`, `team`, `relay`), `net_join` (`room` or
-  `address`), `net_state`, `end_match`
+  `net_host` (`how` = room / lan / code, `port`, `team`, `netcode`, `relay`,
+  `stun`, `discovery_port`), `net_join` (`how` with `room`, `address` or
+  `code`), `net_code_connect` (`code`), `net_discover` (`on`), `net_state`,
+  `net_bench` (snapshot cost), `net_synctest` (`frames`), `end_match`
   (`winner`), `set_option` (`key`, `value`, `save`) and `options`; for musou
   `musou_start` (`area`, `mission`, `team`, `auto` / `ai_level` for a CPU
   team, `fresh`, `skip_intro`), `musou_state`, `musou_debug` (`kill`: mooks /
@@ -153,8 +170,9 @@ the submodules under `external/`; everything converted from them is ignored
 
 - Not ported yet: the language stage, mouse input on the screens (the musou
   world map and dialogs take it). The Flash LAN PLAY is replaced by NET PLAY.
-- NET PLAY: cross-platform determinism (macOS arm64 against Windows x64) is
-  untested on real machines; render-only code uses sin / cos, gameplay does not.
+- NET PLAY: the engine's deterministic math makes Lua's float math the same
+  on every platform (macOS arm64 and Linux x86_64 checked); a Windows x64
+  machine against a Mac has not been played yet.
 - Musou approximations: the fighter list jumps between pages instead of
   sliding (no scrollRect clipping); the coin button's add-money (an ad SDK
   hook) does nothing; the time reads MM:SS (KyoTimerFormat is not in the
@@ -187,8 +205,10 @@ ACRADE, the world map, the mission confirm and LoadingMusouStage to MISSION
 COMPLETE in area p1's first mission (Game.musou_result 1 = complete, 2 =
 failed). Screens can be opened
 directly with the `goto` command for rendered checks. `tools/net_test.py`
-plays a NET PLAY session between two headless games through a local room
-server (`--relay`; `--lan --lag MS --loss F` through a lossy proxy) and checks
-both machines stay in the same state. Set `POCKET_SAVE_ROOT`
+plays a NET PLAY session between two headless games (room server, `--relay`,
+`--discover`, `--code`, `--lan --lag MS --loss F` through a lossy proxy,
+`--lockstep`) and checks both machines stay in the same state;
+`tools/rollback_test.py` runs the engine's rollback sync test over CPU
+battles, a team battle and a VS PEOPLE match from the select. Set `POCKET_SAVE_ROOT`
 to a scratch directory for any run (options are saved). Run output stays
 under the engine's ignored `build/`.

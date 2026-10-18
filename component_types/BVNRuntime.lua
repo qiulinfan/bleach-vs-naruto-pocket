@@ -121,6 +121,8 @@ function R.Character(id)
 		c = rawget(_G, var)
 		rawset(_G, var, nil)
 	end
+	-- Converted data never changes: netplay rollback snapshots leave it out.
+	if c then Net.Static(c) end
 	cache[var] = c
 	return c
 end
@@ -139,17 +141,25 @@ end
 local classCache = {}
 -- flash.display.Stage: scripts add ENTER_FRAME listeners (gaara's sand wall); the battle
 -- runs them once per logic tick.
+-- Listeners run in the order they were added (not pairs over function keys,
+-- whose order follows addresses and differs between machines in netplay).
 local enterFrame = {}
+local function removeListener(fn)
+	for i, f in ipairs(enterFrame) do
+		if f == fn then table.remove(enterFrame, i) return end
+	end
+end
 local stage = {
-	addEventListener = function(_, _, fn) enterFrame[fn] = true end,
-	removeEventListener = function(_, _, fn) enterFrame[fn] = nil end,
-	hasEventListener = function() return next(enterFrame) ~= nil end,
+	addEventListener = function(_, _, fn) removeListener(fn); enterFrame[#enterFrame + 1] = fn end,
+	removeEventListener = function(_, _, fn) removeListener(fn) end,
+	hasEventListener = function() return #enterFrame > 0 end,
 }
 function R.EnterFrame()
-	for fn in pairs(enterFrame) do
+	local list = table.move(enterFrame, 1, #enterFrame, 1, {})
+	for _, fn in ipairs(list) do
 		local ok, err = pcall(fn, {})
 		if not ok then
-			enterFrame[fn] = nil
+			removeListener(fn)
 			Debug.Log("BVN enterFrame listener: " .. tostring(err))
 		end
 	end

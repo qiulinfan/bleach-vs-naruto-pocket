@@ -1,22 +1,29 @@
--- NET PLAY: two players on two computers through the engine's lockstep
--- netplay (Net, engine net/Netplay). The host opens a room on the room server
--- (or listens on the LAN), the guest enters the room code (or the host's IP).
--- From the first lockstep tick both machines run the same session: VS PEOPLE
--- from the fighter select on, the host as player 1 and the guest as player 2,
--- each playing with their own player 1 keys. Back and confirm are shared.
---
--- The room server address: POCKET_NET_SERVER, else "server" in netplay.json in
--- the project directory ({"server": "host:27777"}).
+-- NET PLAY: two players on two computers through the engine's netplay (Net,
+-- engine net/Netplay). Ways to meet:
+--   ROOM: a room code from the room server (netplay.json / POCKET_NET_SERVER);
+--   LAN: a direct host found by LAN discovery, or its address typed in - also
+--        the way over a virtual LAN (Tailscale, ZeroTier, Radmin VPN), whose
+--        addresses the host screen lists;
+--   CODE: connection codes the players exchange (public STUN, no server of ours).
+-- From the first session tick both machines run the same game: VS PEOPLE from
+-- the fighter select on, the host as player 1 and the guest as player 2, each
+-- playing with their own player 1 keys; confirm and back are shared. NETCODE
+-- picks rollback (inputs act at once; mispredicted ticks are simulated again
+-- from a snapshot of the Lua state) or delay (lockstep).
 -- Not attached to any actor; BVNGame calls BVNNet.Update(g) every tick.
 local S = setmetatable({}, {__index = function(_, k) return BVNScreen[k] end})
 local ORDER = 10
 local WHITE = {255, 255, 255}
 local YELLOW = {253, 237, 101}
 local RED = {255, 110, 90}
-local VERSION = "bvn-net-1"
+local GREY = {170, 170, 170}
+local VERSION = "bvn-net-2"
 local CHECK_EVERY = 60
+local GAME_ID = "bleach_vs_naruto"
 
 local MODES = {{"SINGLE", "单人对战", false}, {"TEAM", "组队对战", true}}
+local NETCODES = {{"ROLLBACK", "回滚 (推荐)", "rollback"}, {"DELAY", "延迟锁步", "lockstep"}}
+local KINDS = {lan = "局域网", tailscale = "Tailscale", zerotier = "ZeroTier", radmin = "Radmin VPN"}
 
 local function serverAddress()
 	local env = os.getenv and os.getenv("POCKET_NET_SERVER")
@@ -44,18 +51,21 @@ local function decode(s)
 	return t
 end
 
--- The engine's messages (net/Netplay.cpp) in the game's language.
+-- The engine's messages (net/Netplay.cpp, Link.cpp) in the game's language.
 local MESSAGES = {
 	{"the other player left", "对方已离开"},
 	{"connection lost", "连接中断"},
 	{"no answer from the room server", "房间服务器没有响应"},
+	{"could not connect directly", "无法直连：双方网络都比较严格，请改用房间码或虚拟局域网"},
 	{"no answer from", "连接不上对方"},
 	{"room server: no such room", "房间不存在"},
 	{"room server: room is full", "房间已满"},
 	{"cannot resolve the room server", "找不到房间服务器"},
+	{"invalid connection code", "连接码不对"},
 	{"cannot resolve", "地址无效"},
 	{"different game version", "对方的游戏版本不同"},
 	{"cannot open a UDP socket", "无法打开网络端口"},
+	{"rollback needs state snapshots", "回滚需要状态快照"},
 }
 
 local function say(err)
@@ -68,135 +78,194 @@ end
 
 local function configure()
 	Net.Configure({local_prefix = "p1_", sides = {"p1_", "p2_"}, shared = {"confirm", "back"}, delay = 0,
-		force_relay = BVNNet.relay == true})
+		mode = BVNNet.netcode, max_rollback = 8, game = GAME_ID, force_relay = BVNNet.relay == true,
+		stun = BVNNet.stun, discovery_port = BVNNet.discoveryPort})
+	-- Rollback state: everything reachable from the globals (converted data is static).
+	Net.Track(_G)
 end
 
--- Text entry before the session starts (raw keys: nothing is in lockstep yet).
+local function payload()
+	return encode({v = VERSION, team = BVNNet.team and 1 or 0, time = BVNSettings.gameTime,
+		hp = BVNSettings.fighterHP, key = BVNSettings.keyMode})
+end
+
+-- Text entry before the session starts (raw keys and the clipboard: nothing
+-- is in step yet).
 local KEYS = {}
 for c in ("abcdefghijklmnopqrstuvwxyz0123456789"):gmatch(".") do KEYS[#KEYS + 1] = {c, c:upper()} end
 for d = 0, 9 do KEYS[#KEYS + 1] = {"keypad " .. d, tostring(d)} end
 KEYS[#KEYS + 1] = {".", "."}
 KEYS[#KEYS + 1] = {"keypad .", "."}
+KEYS[#KEYS + 1] = {"-", "-"}
+KEYS[#KEYS + 1] = {";", ":"}
+
+local function modifier()
+	return Input.GetKey("left ctrl") or Input.GetKey("right ctrl") or Input.GetKey("left gui") or Input.GetKey("right gui")
+end
 
 local function typed(allowed, max, text)
 	if Input.GetKeyDown("backspace") then return text:sub(1, -2) end
+	if modifier() then
+		if Input.GetKeyDown("v") then
+			local pasted = ""
+			for c in Application.GetClipboardText():upper():gmatch(".") do
+				if allowed:find(c, 1, true) then pasted = pasted .. c end
+			end
+			return (text .. pasted):sub(1, max)
+		end
+		return text
+	end
 	for _, k in ipairs(KEYS) do
 		if #text < max and allowed:find(k[2], 1, true) and Input.GetKeyDown(k[1]) then text = text .. k[2] end
 	end
 	return text
 end
 
-local CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-local IP_CHARS = "0123456789."
+local function entered() return Input.GetKeyDown("return") or Input.GetKeyDown("keypad enter") end
+
+local ROOM_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+local CODE_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZOIL-"
+local IP_CHARS = "0123456789.:"
+
+local function codeReady(text)
+	return #text:gsub("-", "") == 21
+end
 
 -- The NET PLAY screen ----------------------------------------------------------------------
 
 local function newScreen(g, message)
 	local st = {name = "netplay", phase = "netplay", t = 0, bg = S.Clip("setting", 0, false), view = "menu",
-		message = message, text = ""}
+		message = message, text = "", pick = 1}
 	BVNSound.Music("bvn/bgm/back")
 	st.group = BVNScreenDialog.Group({
-		{label = "CREATE ROOM", cn = "创建房间"},
-		{label = "JOIN ROOM", cn = "加入房间"},
-		{label = "LAN HOST", cn = "局域网建房"},
-		{label = "LAN JOIN", cn = "局域网加入"},
+		{label = "CREATE ROOM", cn = "房间码建房 (需要服务器)"},
+		{label = "JOIN ROOM", cn = "输入房间码加入"},
+		{label = "LAN HOST", cn = "局域网 / 虚拟局域网建房"},
+		{label = "LAN JOIN", cn = "局域网 / 虚拟局域网加入"},
+		{label = "CODE HOST", cn = "连接码建房 (不需要服务器)"},
+		{label = "CODE JOIN", cn = "输入连接码加入"},
 		{label = "MODE", cn = "对战模式", key = "team", options = MODES, value = BVNNet.team},
+		{label = "NETCODE", cn = "联机方式", key = "netcode", options = NETCODES, value = BVNNet.netcode},
 		{label = "BACK", cn = "返回"},
-	}, {startY = 40, endY = 550, gap = 70})
+	}, {startY = 22, endY = 560, gap = 52})
 
-	function st.Host(lan)
-		configure()
-		local payload = encode({v = VERSION, team = BVNNet.team and 1 or 0, time = BVNSettings.gameTime,
-			hp = BVNSettings.fighterHP, key = BVNSettings.keyMode})
-		local ok
-		if lan then
-			ok = Net.HostDirect(BVNNet.lanPort or 0, payload)
-		else
-			local server = serverAddress()
-			if not server then
-				st.message = "没有配置房间服务器 (netplay.json)"
-				return
-			end
-			ok = Net.Host(server, payload)
-		end
-		if not ok then
-			st.message = say(Net.Status().error)
-			return
-		end
-		BVNNet.session = {host = true, lan = lan}
-		st.view, st.message = "wait", nil
+	local function fail(text)
+		st.message = text
+		st.view = "menu"
+		BVNNet.session = nil
+		Net.Discover(false)
 	end
 
-	function st.Join(text)
+	-- Starts hosting or joining; `how` is room, lan, code; `arg` the room code,
+	-- address or host code when joining.
+	function st.Start(host, how, arg)
 		configure()
 		local ok
-		if st.view == "lan" then
-			ok = Net.JoinDirect(text)
-		else
+		if how == "room" then
 			local server = serverAddress()
-			if not server then
-				st.message = "没有配置房间服务器 (netplay.json)"
-				st.view = "menu"
-				return
-			end
-			ok = Net.Join(server, text)
+			if not server then return fail("没有配置房间服务器 (netplay.json)") end
+			ok = host and Net.Host(server, payload()) or Net.Join(server, arg)
+		elseif how == "lan" then
+			ok = host and Net.HostDirect(BVNNet.lanPort or 0, payload()) or Net.JoinDirect(arg)
+		else
+			ok = host and Net.CodeHost(payload()) or Net.CodeJoin(arg)
 		end
-		if not ok then
-			st.message = say(Net.Status().error)
-			st.view = "menu"
-			return
-		end
-		BVNNet.session = {host = false, lan = st.view == "lan"}
-		st.view, st.message = "wait", nil
+		if not ok then return fail(say(Net.Status().error) or "连接失败") end
+		Net.Discover(false)
+		BVNNet.session = {host = host, how = how}
+		st.view, st.message, st.text = "wait", nil, ""
+	end
+
+	local function back()
+		if st.view == "wait" then Net.Leave() end
+		Net.Discover(false)
+		BVNNet.session = nil
+		st.view, st.text = "menu", ""
 	end
 
 	function st:Update()
 		self.t = self.t + 1
 		self.bg:Step()
-		if self.view == "menu" then
+		local v = self.view
+		if v == "menu" then
 			local ev = self.group:Update()
 			if S.Down("back", "menu") then
 				g:GoMenu()
 				return
 			end
 			if not ev then return end
-			if ev.change == "team" then
-				BVNNet.team = ev.value
-			elseif ev.select == "CREATE ROOM" then
-				st.Host(false)
-			elseif ev.select == "LAN HOST" then
-				st.Host(true)
-			elseif ev.select == "JOIN ROOM" or ev.select == "LAN JOIN" then
-				self.view = ev.select == "JOIN ROOM" and "code" or "lan"
-				self.text, self.message = "", nil
-			elseif ev.select == "BACK" then
-				g:GoMenu()
+			self.message = nil
+			if ev.change == "team" then BVNNet.team = ev.value
+			elseif ev.change == "netcode" then BVNNet.netcode = ev.value
+			elseif ev.select == "CREATE ROOM" then st.Start(true, "room")
+			elseif ev.select == "LAN HOST" then st.Start(true, "lan")
+			elseif ev.select == "CODE HOST" then st.Start(true, "code")
+			elseif ev.select == "JOIN ROOM" then self.view, self.text = "room", ""
+			elseif ev.select == "CODE JOIN" then self.view, self.text = "code", ""
+			elseif ev.select == "LAN JOIN" then
+				configure()
+				Net.Discover(true)
+				self.view, self.pick = "lan", 1
+			elseif ev.select == "BACK" then g:GoMenu() end
+			return
+		end
+		if Input.GetKeyDown("escape") then return back() end
+		if v == "room" then
+			self.text = typed(ROOM_CHARS, 4, self.text)
+			if #self.text == 4 and entered() then st.Start(false, "room", self.text) end
+		elseif v == "code" then
+			self.text = typed(CODE_CHARS, 23, self.text)
+			if codeReady(self.text) and entered() then st.Start(false, "code", self.text) end
+		elseif v == "ip" then
+			self.text = typed(IP_CHARS, 21, self.text)
+			if #self.text >= 7 and entered() then st.Start(false, "lan", self.text) end
+		elseif v == "lan" then
+			-- Found hosts, then "type an address".
+			self.hosts = Net.Hosts()
+			local n = #self.hosts + 1
+			if Input.GetKeyDown("up") or Input.GetKeyDown("w") then self.pick = (self.pick - 2) % n + 1 end
+			if Input.GetKeyDown("down") or Input.GetKeyDown("s") then self.pick = self.pick % n + 1 end
+			self.pick = math.min(self.pick, n)
+			if entered() or Input.GetKeyDown("j") then
+				local h = self.hosts[self.pick]
+				if h then st.Start(false, "lan", h.address) else self.view, self.text = "ip", "" end
 			end
-		elseif self.view == "code" or self.view == "lan" then
-			if Input.GetKeyDown("escape") then
-				self.view = "menu"
-				return
-			end
-			if self.view == "code" then
-				self.text = typed(CODE_CHARS, 4, self.text)
-				if #self.text == 4 and (Input.GetKeyDown("return") or Input.GetKeyDown("keypad enter")) then st.Join(self.text) end
-			else
-				self.text = typed(IP_CHARS, 15, self.text)
-				if #self.text > 6 and (Input.GetKeyDown("return") or Input.GetKeyDown("keypad enter")) then st.Join(self.text) end
-			end
-		elseif self.view == "wait" then
+		elseif v == "wait" then
 			local s = Net.Status()
 			self.status = s
 			if s.state == "error" or s.state == "disconnected" then
 				Net.Leave()
-				BVNNet.session = nil
-				self.view, self.message = "menu", say(s.error) or "连接失败"
-			elseif Input.GetKeyDown("escape") or Input.GetKeyDown("backspace") then
-				Net.Leave()
-				BVNNet.session = nil
-				self.view = "menu"
+				return fail(say(s.error) or "连接失败")
+			end
+			local ses = BVNNet.session or {}
+			if s.code ~= "" and modifier() and Input.GetKeyDown("c") then
+				Application.SetClipboardText(s.code)
+				self.copied = self.t
+			end
+			-- The code host can take the guest's code (needed when its own network
+			-- drops the guest's first packets).
+			if ses.how == "code" and ses.host and s.state ~= "running" then
+				self.text = typed(CODE_CHARS, 23, self.text)
+				if codeReady(self.text) and entered() then
+					if Net.CodeConnect(self.text) then self.connecting = true
+					else self.message = "连接码不对" end
+				end
 			end
 		end
+	end
+
+	local function box(title)
+		S.Rect(110, 120, 580, 380, {0, 0, 0}, 210, ORDER + 1, "world")
+		S.Text(title, 110, 140, 22, YELLOW, "center", 580, 1, ORDER + 2)
+	end
+
+	local function line(text, y, size, color)
+		S.Text(text, 110, y, size or 18, color or WHITE, "center", 580, 1, ORDER + 2)
+	end
+
+	local function entry(y)
+		local caret = (st.t // 30) % 2 == 0 and "_" or " "
+		line(st.text .. caret, y, 30)
 	end
 
 	function st:Draw()
@@ -206,40 +275,75 @@ local function newScreen(g, message)
 		local hw = S.FontWidth("NET PLAY")
 		S.Font("NET PLAY", 790 - hw, 10, 1, 1, ORDER + 1, "world")
 		S.Text("· 联机对战", 600, 52, 16, WHITE, "right", 190, 0.8, ORDER + 1)
-		if self.view == "menu" then
+		local v = self.view
+		if v == "menu" then
 			self.group:Draw(0, 0, ORDER + 1, "world")
-			S.Text("联机对战：主机为 1P，加入者为 2P，双方都用 1P 键位 (WASD + JKLUIO)", 60, 520, 15, WHITE, "left", nil, 1,
-				ORDER + 2)
-		else
-			S.Rect(150, 170, 500, 260, {0, 0, 0}, 200, ORDER + 1, "world")
-			if self.view == "code" or self.view == "lan" then
-				local title = self.view == "code" and "输入房间码 (4 位)" or "输入主机的局域网 IP"
-				S.Text(title, 150, 200, 22, YELLOW, "center", 500, 1, ORDER + 2)
-				local caret = (self.t // 30) % 2 == 0 and "_" or " "
-				S.Text(self.text .. caret, 150, 260, 40, WHITE, "center", 500, 1, ORDER + 2)
-				S.Text("回车确认    Esc 返回", 150, 370, 16, WHITE, "center", 500, 1, ORDER + 2)
-			else
-				local s = self.status or Net.Status()
-				local ses = BVNNet.session or {}
-				local line
-				if ses.host and not ses.lan then
-					S.Text("房间码", 150, 195, 20, YELLOW, "center", 500, 1, ORDER + 2)
-					S.Text(s.room ~= "" and s.room or "...", 150, 230, 56, WHITE, "center", 500, 1, ORDER + 2)
-					line = s.state == "server" and "正在连接房间服务器..." or "把房间码告诉朋友，等待对方加入..."
-				elseif ses.host then
-					S.Text("局域网主机", 150, 195, 20, YELLOW, "center", 500, 1, ORDER + 2)
-					S.Text(BVNNet.LocalAddress(), 150, 240, 32, WHITE, "center", 500, 1, ORDER + 2)
-					line = "等待对方加入..."
-				else
-					S.Text("正在加入", 150, 195, 20, YELLOW, "center", 500, 1, ORDER + 2)
-					line = s.state == "connecting" and "正在建立连接..." or "正在连接..."
-				end
-				if s.state == "connecting" then line = "正在建立连接..." end
-				S.Text(line, 150, 320, 18, WHITE, "center", 500, 1, ORDER + 2)
-				S.Text("Esc 取消", 150, 380, 16, WHITE, "center", 500, 1, ORDER + 2)
+			S.Text("主机为 1P，加入者为 2P，双方都用 1P 键位 (WASD + JKLUIO)", 60, 548, 14, WHITE, "left", nil, 1, ORDER + 2)
+		elseif v == "room" then
+			box("输入房间码 (4 位)")
+			entry(250)
+			line("回车确认    Esc 返回", 440, 16)
+		elseif v == "code" then
+			box("输入朋友的连接码")
+			entry(250)
+			line("可以 Ctrl+V / ⌘V 粘贴    回车确认    Esc 返回", 440, 16)
+		elseif v == "ip" then
+			box("输入主机地址")
+			entry(250)
+			line("局域网 IP，或 Tailscale / ZeroTier / Radmin 的虚拟 IP", 330, 16, GREY)
+			line("回车确认    Esc 返回", 440, 16)
+		elseif v == "lan" then
+			box("局域网里的房间")
+			local hosts = self.hosts or {}
+			local y = 190
+			for i, h in ipairs(hosts) do
+				local p = decode(h.payload)
+				local text = h.name .. "   " .. h.address .. "   " .. (p.team == "1" and "组队" or "单人")
+				line((i == self.pick and "> " or "  ") .. text, y, 18, i == self.pick and YELLOW or WHITE)
+				y = y + 30
 			end
+			if #hosts == 0 then line("正在寻找...（Tailscale 不支持自动发现，请手动输入）", y, 16, GREY); y = y + 30 end
+			line((self.pick == #hosts + 1 and "> " or "  ") .. "手动输入地址", y + 10, 18, self.pick == #hosts + 1 and YELLOW or WHITE)
+			line("W/S 选择    J 或回车加入    Esc 返回", 440, 16)
+		else
+			local s = self.status or Net.Status()
+			local ses = BVNNet.session or {}
+			local status = s.state == "connecting" and "正在建立连接..." or "等待对方加入..."
+			if ses.how == "room" and ses.host then
+				box("房间码")
+				line(s.room ~= "" and s.room or "...", 190, 56)
+				status = s.state == "server" and "正在连接房间服务器..." or (s.state == "waiting" and "把房间码告诉朋友" or status)
+			elseif ses.how == "lan" and ses.host then
+				box("等待加入：让朋友选 LAN JOIN")
+				local y = 190
+				local port = (s.lan or ""):match(":(%d+)$") or "27778"
+				for _, a in ipairs(Net.LocalAddresses()) do
+					line((KINDS[a.kind] or a.kind) .. "   " .. a.ip .. ":" .. port, y, a.kind == "lan" and 20 or 22,
+						a.kind == "lan" and WHITE or YELLOW)
+					y = y + 32
+				end
+				line("同一个网络会自动出现；虚拟局域网请让朋友手动输入上面的地址", 380, 14, GREY)
+			elseif ses.how == "code" then
+				box(ses.host and "把你的连接码发给朋友" or "把你的连接码发回给主机")
+				if s.code ~= "" then
+					line(s.code, 185, 30)
+					local copied = self.copied and self.t - self.copied < 90
+					line(copied and "已复制" or "Ctrl+C / ⌘C 复制", 228, 15, copied and YELLOW or GREY)
+					if s.nat == "symmetric" then line("你的网络可能无法直连（对称 NAT）", 252, 15, RED) end
+				else
+					line("正在获取公网地址...", 195, 20)
+				end
+				if ses.host and s.state ~= "running" then
+					line("朋友的连接码（朋友连不上时再输入）：", 285, 16, GREY)
+					entry(310)
+				end
+			else
+				box("正在加入")
+			end
+			line(status, 400, 18)
+			line("Esc 取消", 440, 16)
 		end
-		if self.message then S.Text(self.message, 0, 470, 18, RED, "center", 800, 1, ORDER + 3) end
+		if self.message then S.Text(self.message, 0, 512, 18, RED, "center", 800, 1, ORDER + 3) end
 	end
 	return st
 end
@@ -270,25 +374,23 @@ end
 
 BVNNet = {
 	team = false,
-	relay = false,  -- always relay through the room server (tests)
-	lanPort = nil,  -- LAN host port (default 27778)
-	session = nil,  -- {host, lan, started, frame, desync}
+	netcode = "rollback",
+	relay = false,         -- always relay through the room server (tests)
+	lanPort = nil,         -- LAN host port (default 27778)
+	stun = nil,            -- STUN servers for connection codes (tests; default the engine's)
+	discoveryPort = nil,   -- LAN discovery port (tests; default 27779)
+	session = nil,         -- {host, how, started, frame}
 	New = newScreen,
-
-	LocalAddress = function()
-		local s = Net.Status()
-		return s.lan ~= "" and s.lan or "本机 IP (端口 27778)"
-	end,
 
 	Active = function()
 		return BVNNet.session ~= nil and BVNNet.session.started == true
 	end,
 
-	-- The first lockstep tick on both machines: the same settings, seed and screen.
+	-- The first session tick on both machines: the same settings, seed and screen.
 	Start = function(g, s)
 		local ses = BVNNet.session or {host = s.side == 1}
 		BVNNet.session = ses
-		ses.started, ses.frame, ses.desync = true, 0, false
+		ses.started, ses.frame = true, 0
 		local p = decode(s.payload)
 		if p.v ~= VERSION then
 			BVNNet.Stop(g, "对方的游戏版本不同")
@@ -336,23 +438,20 @@ BVNNet = {
 			return
 		end
 		ses.frame = ses.frame + 1
-		if ses.frame % CHECK_EVERY == 0 then
-			local s = Net.Status()
-			Net.Checksum(s.frame, hashState(g))
-			if s.desync and not ses.desync then ses.desync = s.desync_frame end
-			ses.ping = s.ping
-		end
+		if ses.frame % CHECK_EVERY == 0 then Net.Checksum(Net.Status().frame, hashState(g)) end
 	end,
 
-	-- After the screens: the desync warning and the ping.
+	-- After the screens: the desync warning, the ping and the netcode.
 	Draw = function(g)
 		local ses = BVNNet.session
-		if not (ses and ses.started) then return end
-		if ses.desync then
-			S.Text("画面不同步 (帧 " .. tostring(ses.desync) .. ")：双方的游戏状态已不一致", 0, 4, 16, RED, "center", 800, 1, 5000)
+		if not (ses and ses.started) or Net.IsResimulating() then return end
+		local s = Net.Status()
+		if s.desync then
+			S.Text("画面不同步 (帧 " .. tostring(s.desync_frame) .. ")：双方的游戏状态已不一致", 0, 4, 16, RED, "center", 800, 1, 5000)
 		end
-		if ses.ping and ses.ping >= 0 then
-			S.Text(ses.ping .. " ms", 740, 580, 12, WHITE, "left", nil, 0.7, 5000)
+		if s.ping >= 0 then
+			local tag = s.mode == "rollback" and ("回滚 " .. s.max_rollback_seen) or ("延迟 " .. s.delay)
+			S.Text(s.ping .. " ms  " .. tag, 700, 580, 12, WHITE, "left", nil, 0.7, 5000)
 		end
 	end,
 

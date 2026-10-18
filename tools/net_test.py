@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""NET PLAY end to end: a local room server and two headless games. The host
-opens a room, the guest joins with the code, both go through the fighter
+"""NET PLAY end to end: two headless games meet, both go through the fighter
 select and fight with their own player 1 keys; the two machines must stay in
 the same state (positions, HP, the battle hash, the seed) and the guest returns
-to the NET PLAY screen when the host leaves.
+to the NET PLAY screen when the host leaves. Rollback netcode by default.
 
-Usage: tools/net_test.py [path/to/pocket2d/build/sdl3-release/game] [--relay]
-       tools/net_test.py [game] --lan [--lag MS] [--loss FRACTION]
---lan joins by address through a local UDP proxy that delays each packet by
-MS milliseconds (each way) and drops FRACTION of them.
+Usage: tools/net_test.py [path/to/pocket2d/build/sdl3-release/game] [options]
+  (default)        a room code from a local room server
+  --relay          the same, relayed through the server
+  --discover       the guest finds a LAN host by LAN discovery
+  --code           connection codes through a local STUN server
+  --lan [--lag MS] [--loss FRACTION]
+                   joins a LAN host by address through a local UDP proxy that
+                   delays each packet by MS milliseconds (each way) and drops
+                   FRACTION of them
+  --lockstep       delay-based netcode instead of rollback
 """
 import json
 import os
@@ -128,6 +133,37 @@ class LossyProxy:
         self.running = False
 
 
+STUN_MAGIC = 0x2112A442
+
+
+class StunServer:
+    """Answers STUN binding requests with the sender's address."""
+
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.settimeout(0.05)
+        self.port = self.sock.getsockname()[1]
+        self.running = True
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        while self.running:
+            try:
+                data, addr = self.sock.recvfrom(2048)
+            except socket.timeout:
+                continue
+            if len(data) < 20 or int.from_bytes(data[4:8], "big") != STUN_MAGIC:
+                continue
+            ip = int.from_bytes(socket.inet_aton(addr[0]), "big") ^ STUN_MAGIC
+            port = addr[1] ^ (STUN_MAGIC >> 16)
+            attr = bytes([0, 0x20, 0, 8, 0, 1]) + port.to_bytes(2, "big") + ip.to_bytes(4, "big")
+            self.sock.sendto(bytes([1, 1, 0, 12]) + data[4:20] + attr, addr)
+
+    def close(self):
+        self.running = False
+
+
 def free_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind(("127.0.0.1", 0))
@@ -144,7 +180,9 @@ def main():
     def opt(name, default):
         return float(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
     lag, loss = opt("--lag", 0), opt("--loss", 0)
-    proxy = None
+    netcode = "lockstep" if "--lockstep" in sys.argv else "rollback"
+    rollback = netcode == "rollback"
+    proxy = stun = None
     port = free_port()
     server = subprocess.Popen([sys.executable, str(ENGINE / "tools/room_server/room_server.py"), "--port", str(port),
                                "--bind", "127.0.0.1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -158,15 +196,52 @@ def main():
         a, b = Agent(exe, ea), Agent(exe, eb)
         agents = [a, b]
         step(a, b, 5)
-        if lan:
+        if "--discover" in sys.argv:
+            hport, dport = free_port(), free_port()
+            r = a.call("net_host", {"how": "lan", "port": hport, "discovery_port": dport, "netcode": netcode})
+            check(r["view"] == "wait", "LAN host listens")
+            b.call("net_discover", {"on": True, "discovery_port": dport})
+            hosts = []
+            for _ in range(100):
+                step(a, b)
+                hosts = b.call("net_discover")["hosts"]
+                if hosts:
+                    break
+                time.sleep(0.03)
+            check(len(hosts) >= 1 and "team=0" in hosts[0]["payload"], "LAN discovery finds the host: %s" % hosts)
+            r = b.call("net_join", {"how": "lan", "address": hosts[0]["address"]})
+            check(r["view"] == "wait", "guest joins the found host " + hosts[0]["address"])
+        elif "--code" in sys.argv:
+            stun = StunServer()
+            servers = ["127.0.0.1:%d" % stun.port]
+            r = a.call("net_host", {"how": "code", "stun": servers, "netcode": netcode})
+            code = ""
+            for _ in range(100):
+                a.req({"cmd": "step"})
+                code = a.call("net_state")["status"]["code"]
+                if code:
+                    break
+                time.sleep(0.02)
+            check(len(code) == 23, "the host's connection code " + code)
+            r = b.call("net_join", {"how": "code", "code": code.lower().replace("-", " "), "stun": servers})
+            check(r["view"] == "wait", "the guest enters the code: %s" % r)
+            guest = ""
+            for _ in range(100):
+                step(a, b)
+                guest = b.call("net_state")["status"]["code"]
+                if guest:
+                    break
+                time.sleep(0.02)
+            check(a.call("net_code_connect", {"code": guest})["ok"], "the host enters the guest's code " + guest)
+        elif lan:
             hport = free_port()
-            r = a.call("net_host", {"lan": True, "port": hport})
+            r = a.call("net_host", {"lan": True, "port": hport, "netcode": netcode})
             check(r["view"] == "wait" and r["status"]["lan"], "LAN host listens at %s" % r["status"]["lan"])
             proxy = LossyProxy(("127.0.0.1", hport), lag, loss)
             r = b.call("net_join", {"address": "127.0.0.1:%d" % proxy.port})
             check(r["view"] == "wait", "guest joins over the LAN (lag %d ms, loss %d%%)" % (lag, loss * 100))
         else:
-            r = a.call("net_host", {"team": False, "relay": relay})
+            r = a.call("net_host", {"team": False, "relay": relay, "netcode": netcode})
             check(r["view"] == "wait", "host opens a room: %s" % r)
             room = ""
             for _ in range(100):
@@ -206,7 +281,9 @@ def main():
         for i in range(150):
             fa, fb = moves[i % len(moves)]
             step(a, b, 4, fa, fb)
-        step(a, b, 10)
+        # Neutral input for a while: every prediction is right again, so the
+        # two sides agree on each tick they have both simulated.
+        step(a, b, 40)
         frame = align(a, b)
         oa, ob = a.req({"cmd": "observe"}), b.req({"cmd": "observe"})
         fight = [c["properties"] for o in (oa, ob) for x in o["actors"] for c in x["components"]
@@ -217,12 +294,18 @@ def main():
         sa, sb = a.call("net_state"), b.call("net_state")
         check(sa["hash"] == sb["hash"], "same battle state at frame %d: %s / %s" % (frame, sa["hash"], sb["hash"]))
         check(sa["seed"] == sb["seed"], "same RNG state")
-        check(not sa["desync"] and not sb["desync"] and not sa["status"]["desync"] and not sb["status"]["desync"],
-              "no desync reported")
-        check(sa["status"]["relay"] == relay == sb["status"]["relay"], "transport: %s" % ("relay" if sa["status"]["relay"] else "direct"))
-        check(sa["status"]["delay"] == sb["status"]["delay"] and (sa["status"]["delay"] >= 4 if lag >= 50 else True),
-              "input delay %d for %d ms lag" % (sa["status"]["delay"], lag))
-        print("ping", sa["status"]["ping"], "stalls", sa["status"]["stalls"], sb["status"]["stalls"])
+        check(not sa["status"]["desync"] and not sb["status"]["desync"], "no desync reported")
+        check(sa["status"]["relay"] == relay == sb["status"]["relay"], "transport: %s (%s)" % (
+            "relay" if sa["status"]["relay"] else "direct", sa["status"]["link"]))
+        check(sa["status"]["mode"] == netcode == sb["status"]["mode"], "netcode " + netcode)
+        d = sa["status"]["delay"]
+        check(d == sb["status"]["delay"] and (d >= 4 if lag >= 50 and not rollback else d <= 3 if rollback else True),
+              "input delay %d for %d ms lag" % (d, lag))
+        if rollback and lag > 0:
+            check(sa["status"]["rollbacks"] + sb["status"]["rollbacks"] > 0, "predictions were corrected")
+        print("ping", sa["status"]["ping"], "stalls", sa["status"]["stalls"], sb["status"]["stalls"],
+              "rollbacks", sa["status"]["rollbacks"], sb["status"]["rollbacks"], "max", sa["status"]["max_rollback_seen"],
+              sb["status"]["max_rollback_seen"])
         # The host quits: the guest is back on the NET PLAY screen with a message.
         a.close()
         agents = [b]
@@ -238,6 +321,8 @@ def main():
             ag.close()
         if proxy:
             proxy.close()
+        if stun:
+            stun.close()
         server.terminate()
         server.wait(timeout=10)
         saves.cleanup()

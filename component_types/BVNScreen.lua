@@ -53,6 +53,7 @@ BVNScreen = {
 		f:close()
 		local chunk = load(src, "@" .. name .. ".lua", "t")
 		m = chunk and chunk() or false
+		if m then Net.Static(m) end -- movie data never changes (netplay rollback)
 		cache[name] = m
 		return m or nil
 	end,

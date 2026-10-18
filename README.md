@@ -18,8 +18,10 @@ of the original ActionScript kernel.
 - MUSOU (无双) mode: the world map's areas and missions, waves of mooks and
   bosses against a team of three that levels up, coins to buy fighters; the
   progress is saved.
-- NET PLAY (联机对战): versus on two computers, through a room code or on the
-  same LAN.
+- NET PLAY (联机对战): versus on two computers: on the same LAN (found
+  automatically), over a virtual LAN (Tailscale, ZeroTier, Radmin VPN), with
+  connection codes the players exchange, or with a room code from a room
+  server. Rollback netcode by default.
 
 ## Controls
 
@@ -56,15 +58,31 @@ host plays player 1, the guest player 2. On the select screen each player
 picks with J; elsewhere either player's Enter confirms and Escape goes back or
 pauses for both.
 
-- CREATE ROOM shows a four-letter room code; the friend picks JOIN ROOM and
-  types it. This needs a room server (the engine's `tools/room_server`, see the
-  engine's `docs/development/netplay.md`) named in `netplay.json` beside
-  `game.config`: `{"server": "SERVER_IP:27777"}` (or the `POCKET_NET_SERVER`
-  environment variable).
-- On the same network, LAN HOST shows the host's address and LAN JOIN connects
-  to it (UDP port 27778).
+- **Same network**: LAN HOST, and the friend picks LAN JOIN, where the room
+  shows up by itself (UDP ports 27778 and 27779; allow the game through the
+  firewall when Windows or macOS asks).
+- **Virtual LAN**: both install Tailscale, ZeroTier or Radmin VPN and join the
+  same network. The host picks LAN HOST, which lists its addresses (the virtual
+  one highlighted); the friend picks LAN JOIN. ZeroTier and Radmin rooms show
+  up by themselves; with Tailscale choose "手动输入地址" and type the host's
+  100.x address.
+- **Connection codes** (no server): CODE HOST shows a code (Ctrl+C / ⌘C copies
+  it); the friend picks CODE JOIN and pastes it (Ctrl+V / ⌘V), then sends their
+  own code back, which the host pastes if the friend does not get through by
+  themselves. This works on most home networks; when both networks are strict
+  (the host screen warns about a symmetric NAT) use a virtual LAN or a room
+  code instead.
+- **Room code**: CREATE ROOM shows a four-letter room code; the friend picks
+  JOIN ROOM and types it. This needs a room server (the engine's
+  `tools/room_server`, see the engine's `docs/development/netplay.md`) named in
+  `netplay.json` beside `game.config`: `{"server": "SERVER_IP:27777"}` (or the
+  `POCKET_NET_SERVER` environment variable).
 - MODE picks single or team versus. The host's life, time and key mode
   options apply to both.
+- NETCODE: ROLLBACK (default) lets inputs act at once and corrects the few
+  ticks the other player's input arrived late for; DELAY waits for both
+  inputs, adding the network delay to every input. The corner shows the ping
+  and the deepest correction (or the delay).
 
 Both computers need the same version of the game.
 
@@ -127,18 +145,28 @@ Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_a
 `set_qi`, `set_hp`, `end_match` (`winner`), `goto` (`stage`: `title`,
 `select`, `option`, `credits`, `howtoplay`, `logo`, `winner`, `continue`,
 `gameover`, `congratulations`, `worldmap`, `netplay`), `set_option`, `options`, `net_host`
-(`lan`, `port`, `team`, `relay`), `net_join` (`room` or `address`) and `net_state` on the `Game` actor,
+(`how`: `room` / `lan` / `code`, `port`, `team`, `netcode`, `relay`, `stun`, `discovery_port`), `net_join`
+(`how` with `room`, `address` or `code`), `net_code_connect`, `net_discover`, `net_state`, `net_bench` and
+`net_synctest` on the `Game` actor,
 and for MUSOU `musou_start` (`area`, `mission`, `team`, `auto`, `ai_level`, `fresh`, `skip_intro`),
 `musou_state`, `musou_debug`, `musou_data` and `musou_dialog`.
 Runs that should not touch your saved options can set `POCKET_SAVE_ROOT` to a
 scratch directory.
 
-Netplay test (a local room server and two games playing a session; `--relay`
-forces relaying, `--lan --lag 60 --loss 0.1` connects over the LAN through a
-proxy adding 60 ms each way and 10% loss):
+Netplay test (two games playing a session through a local room server;
+`--relay`, `--discover` (LAN discovery), `--code` (connection codes through a
+local STUN server), `--lan --lag 60 --loss 0.1` (over a proxy adding 60 ms each
+way and 10% loss) and `--lockstep` pick other ways):
 
 ```bash
 python3 ../pocket2d-games/BleachVsNaruto/tools/net_test.py
+```
+
+Rollback test (the engine's sync test, which restores and resimulates six
+ticks every tick, over CPU battles and a VS PEOPLE match from the select):
+
+```bash
+python3 ../pocket2d-games/BleachVsNaruto/tools/rollback_test.py
 ```
 
 ## Credits and licenses
