@@ -89,10 +89,11 @@ Both computers need the same version of the game.
 ## Setting up the assets
 
 The assets are not stored in this repository. They come from three Git
-submodules and are converted locally into ignored folders:
+submodules (5DPLAY Game Studio's repositories) and are converted locally into
+ignored folders. From this project's folder:
 
 ```bash
-git submodule update --init --depth 1 BleachVsNaruto/external/TagAssets BleachVsNaruto/external/BleachVsNaruto BleachVsNaruto/external/FlashSrc
+git submodule update --init --depth 1 external/TagAssets external/BleachVsNaruto external/FlashSrc
 ```
 
 The converter needs Java, [FFDec](https://github.com/jindrapetrik/jpexs-decompiler)
@@ -126,10 +127,16 @@ unconverted ones and `--lua-only` re-translates scripts from cached frames.
 
 ## Running
 
-From the engine checkout (`~/Desktop/pocket2d`):
+The game runs on [pocket2d](https://github.com/qiulinfan/pocket2d) (commit
+`63f5c1d` or later: netplay, rollback, the Command key); build the engine as
+its README says. The commands below run from the engine checkout,
+with this project's path in `BVN`: `../BleachVsNaruto` for a clone of this
+repository beside `pocket2d`, or `../pocket2d-games/BleachVsNaruto`. The tools
+find the engine beside the project (or set `POCKET2D_ENGINE`).
 
 ```bash
-./build/sdl3-release/game --project ../pocket2d-games/BleachVsNaruto
+BVN=../BleachVsNaruto
+./build/sdl3-release/game --project $BVN
 ```
 
 Regression tests (a CPU vs CPU match started through the title menu, select
@@ -137,7 +144,7 @@ and VS screens, and a MUSOU mission from the title menu to its end; need the
 converted assets):
 
 ```bash
-python3 tools/pocket test ../pocket2d-games/BleachVsNaruto
+python3 tools/pocket test $BVN
 ```
 
 Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_assist`, `p2_assist`, `map`,
@@ -159,14 +166,14 @@ local STUN server), `--lan --lag 60 --loss 0.1` (over a proxy adding 60 ms each
 way and 10% loss) and `--lockstep` pick other ways):
 
 ```bash
-python3 ../pocket2d-games/BleachVsNaruto/tools/net_test.py
+python3 $BVN/tools/net_test.py
 ```
 
 Rollback test (the engine's sync test, which restores and resimulates six
 ticks every tick, over CPU battles and a VS PEOPLE match from the select):
 
 ```bash
-python3 ../pocket2d-games/BleachVsNaruto/tools/rollback_test.py
+python3 $BVN/tools/rollback_test.py
 ```
 
 ## Credits and licenses
@@ -178,6 +185,9 @@ python3 ../pocket2d-games/BleachVsNaruto/tools/rollback_test.py
   come from [BleachVsNaruto](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto)
   (GPL-3.0); the shared effects, their sounds, the fight HUD and the interface screens come from
   [BleachVsNaruto_FlashSrc](https://github.com/5DPLAY-Game-Studio/BleachVsNaruto_FlashSrc)
-  (GPL-3.0). This port is a private, non-commercial fan project.
+  (GPL-3.0). This port is a non-commercial fan project.
+- This port's code is under the GNU General Public License v3.0 (`LICENSE`),
+  as the original kernel it follows. The converted assets are not part of it.
 - *Bleach* and *Naruto* characters belong to their rights holders.
-- `fonts/bvn.ttf`: a subset of Noto Sans CJK SC (SIL Open Font License 1.1).
+- `fonts/bvn.ttf`: a subset of Noto Sans CJK SC (SIL Open Font License 1.1,
+  `fonts/OFL.txt`).

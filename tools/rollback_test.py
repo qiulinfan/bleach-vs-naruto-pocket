@@ -17,7 +17,11 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ENGINE = ROOT.parent.parent / "pocket2d"
+# The engine checkout: POCKET2D_ENGINE, else a pocket2d folder beside this project
+# (a clone of this repository) or beside its parent (inside pocket2d-games).
+ENGINE = next((p for p in [Path(os.environ["POCKET2D_ENGINE"])] if "POCKET2D_ENGINE" in os.environ),
+              next((p for p in (ROOT.parent / "pocket2d", ROOT.parent.parent / "pocket2d") if p.is_dir()),
+                   ROOT.parent / "pocket2d"))
 
 
 class Game:
