@@ -43,6 +43,15 @@ the submodules under `external/`; everything converted from them is ignored
   select.xml's layout and cell offsets, and `text_chars` (the movies' text, so
   `tools/make_assets.py --font` keeps those characters in `fonts/bvn.ttf`).
   Masks are ignored (SP_ct, the congratulations shine) and skew is dropped.
+- `tools/convert_musou_ui.py`: the MUSOU mode's data and art. The world map
+  and missions (`config/musou/map1/*.json`) go to
+  `component_types/generated/BVNMusouConfig.lua` with the big map's layout;
+  interface movies (`$musou$MC_ui` and its bars, `game_start_mc`, the dialogs,
+  the map point) are exported with convert_ui's `Screens` walker as
+  `data/bvn/ui/musou_*.lua` (bitmaps in `images/bvn/ui/musou/<doc>/`). Masks are
+  pre-rendered there: the bright map seen through each area's soft circle, and
+  the faces cut by their mask layers (`faces[bar|mini|boss|enemy|big][id]`,
+  drawn at their content slot). The wave ring is 73 pre-drawn images.
 - `tools/swfxml.py` reads FFDec XML timelines (Flash ignores a non-move
   placement on an occupied depth; obfuscated SWFs rely on that); `tools/as3lua.py` turns AS3
   classes into Lua tables (`fields`, `methods`, `frames`). Helpers it calls
@@ -92,19 +101,46 @@ the submodules under `external/`; everything converted from them is ignored
   input (`Down(kind, "menu" | 1 | 2)`). Screens draw in world space at the
   menu camera (rotation works); engine text is always drawn above images, so
   `BVNScreen.textFloor` hides text under dialogs and transitions.
+- MUSOU (`BVNMusou*`): `BVNMusouData` holds MusouModel / MusouPlayerData /
+  MusouLogic (money, owned fighters with level and exp, the team, opened areas
+  and passed missions; saved in slot `musou`). `BVNMusouMap` is WorldMapStage
+  and LoadingMusouStage, `BVNMusouDialog` DialogManager with the confirm /
+  alert, team (MusouStateDialog), fighter (MusouSelectDialog) and pause dialogs,
+  `BVNMusouHud` MusouUI. `BVNMusouBattle` is MusouCtrl + MusouFighterEventCtrl
+  on `BVNBattle.Battle` (methods it does not define resolve there): teams 1 / 2
+  with any number of fighters, the player's team of three (only one on the
+  stage, switched by the assist key, the others regenerate), waves / repeats /
+  enemy creators, EnemyFighterAICtrl (`Mook` input) and EnemyBossAICtrl (BVNAI
+  level 2 with bankai, ghost steps, bursts, super ultimates and throws off),
+  targets by FighterMain.getCurrentTarget, the boss intro / KO, the result
+  banners and the per-instance musou fighter rules (weak mook hits, dying mooks
+  flying further, level-gated inputs, musou enemy hit / guard effect tables on
+  the battle's own `fx`). The original is mouse driven; the mouse works and
+  the keyboard drives a pointer (map: arrows between open areas, attack /
+  confirm selects, skill opens the team; dialogs: arrows, select, back).
 - Agent commands besides the fight ones: `goto` (`stage`: title, select,
   option, credits, howtoplay, logo, winner, continue, gameover,
-  congratulations; `mode`, `team`, `p1` / `p1_team`), `end_match`
-  (`winner`), `set_option` (`key`, `value`, `save`) and `options`.
+  congratulations, worldmap; `mode`, `team`, `p1` / `p1_team`), `end_match`
+  (`winner`), `set_option` (`key`, `value`, `save`) and `options`; for musou
+  `musou_start` (`area`, `mission`, `team`, `auto` / `ai_level` for a CPU
+  team, `fresh`, `skip_intro`), `musou_state`, `musou_debug` (`kill`: mooks /
+  boss / all, `hp`, `qi`, `time`, `wave`), `musou_data` (`reset`, `money`,
+  `level`, `fighters`, `team`, `open`, `pass`, `current`, `save`) and
+  `musou_dialog` (`name`: state / select / confirm / alert).
 - Rules and constants follow the original kernel (`external/BleachVsNaruto`,
   `CORE_KernelLogic/src/net/play5d/game/bvn/`). Keep its quirks unless the
   owner asks otherwise.
 
 ## Open work
 
-- Not ported yet: the musou mode (`GoWorldMap` returns to the title, marked
-  STUB; its mooks `xb/*` are converted), the language stage, LAN play, mouse
-  input on the screens. `BVNGame.StartSurvivor` plays an arcade ladder; the
+- Not ported yet: the language stage, LAN play, mouse input on the screens
+  (the musou world map and dialogs take it).
+- Musou approximations: the fighter list jumps between pages instead of
+  sliding (no scrollRect clipping); the coin button's add-money (an ad SDK
+  hook) does nothing; the time reads MM:SS (KyoTimerFormat is not in the
+  sources); the HUD clips that the original plays natively run at 60 fps,
+  startKOmc at 30 as in renderStartAndKO; texts use `fonts/bvn.ttf`, which
+  lacks 图 币 枚 入 until `tools/make_assets.py --font` is rerun. `BVNGame.StartSurvivor` plays an arcade ladder; the
   battle plays survivor fights as one round each.
 - Screen approximations: the continue screen shows the loser's win portrait
   instead of the fighter in its lose pose; the loading bar fills over 0.5 s
@@ -113,16 +149,23 @@ the submodules under `external/`; everything converted from them is ignored
   joystick setup, QUALITY, DISPLAY MODE) are left out. SHOW HP is saved in
   `BVNSettings.showHp` for the HUD to read. The battle keeps hit and KO
   points in `score`, which BVNGame adds when the match ends.
-- HUD approximations (BVNHud): the qi bar segments, HP bar easing, hit counter
-  animation, 1P / 2P markers, HP text and the training input history are
-  simpler than FightUI / QiBar / FightBar. Background blur is a three-copy
-  horizontal smear; the glow filter is an additive halo.
+- HUD (BVNHud, BVNHudParts): FightUI with every build's BITMAP_UI = true
+  (bars appear without their slide animations; `BVNHud.BITMAP_UI = false`
+  plays them). Fighters log their FighterInputCmd text in `trainingInputs` for
+  the training input history. Background blur is a three-copy horizontal
+  smear; the glow filter is an additive halo.
+- CPU (BVNAI): FighterAICtrl + FighterAILogic; the AI object is the
+  fighter's input, its flags answer the same predicates as keys.
 
 ## Testing
 
 `tools/pocket check` and `tools/pocket test` from the engine root;
 `scenarios/watch_match.scenario.json` drives the original menus (SINGLE
-WATCH, select, map, VS screen) to a finished CPU match. Screens can be opened
+WATCH, select, map, VS screen) to a finished CPU match;
+`scenarios/musou_mission.scenario.json` goes from the title through MUSOU
+ACRADE, the world map, the mission confirm and LoadingMusouStage to MISSION
+COMPLETE in area p1's first mission (Game.musou_result 1 = complete, 2 =
+failed). Screens can be opened
 directly with the `goto` command for rendered checks. Set `POCKET_SAVE_ROOT`
 to a scratch directory for any run (options are saved). Run output stays
 under the engine's ignored `build/`.

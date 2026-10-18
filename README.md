@@ -15,6 +15,9 @@ of the original ActionScript kernel.
   burst / substitution, assists, bullets and summoned attackers.
 - Best of three rounds (single) or until a team runs out (team), 60-second
   timer, the original HUD, round banners and the CPU's difficulty tables.
+- MUSOU (无双) mode: the world map's areas and missions, waves of mooks and
+  bosses against a team of three that levels up, coins to buy fighters; the
+  progress is saved.
 
 ## Controls
 
@@ -38,6 +41,11 @@ or Backspace to go back or, during a fight, to pause. On the select screen an
 alternate form opens around its character; move onto it to pick it.
 OPTION sets the CPU level, key mode, life, time, sound and music volume and
 HP display; they are saved.
+In MUSOU, O switches to the next team member. On the world map the mouse
+works as in the original (click an area, drag, wheel to zoom, the face opens
+the team); with the keyboard W/A/S/D move between open areas, J or Enter
+selects (the current area asks for its next mission), U opens the team and
+Escape leaves.
 
 ## Setting up the assets
 
@@ -68,7 +76,12 @@ headless) and Python with Pillow:
 ~/.local/share/bvn-venv/bin/python tools/convert_ui.py
 ```
 
-`convert_bvn.py` renders every character and assist (about an hour for the
+```bash
+~/.local/share/bvn-venv/bin/python tools/convert_musou_ui.py
+```
+
+`convert_musou_ui.py` runs after `convert_maps.py` (it cuts the faces it
+converted). `convert_bvn.py` renders every character and assist (about an hour for the
 whole roster); `--only ichigo naruto` converts a few, `--missing` only the
 unconverted ones and `--lua-only` re-translates scripts from cached frames.
 
@@ -80,8 +93,9 @@ From the engine checkout (`~/Desktop/pocket2d`):
 ./build/sdl3-release/game --project ../pocket2d-games/BleachVsNaruto
 ```
 
-Regression test (a CPU vs CPU match started through the title menu, select
-and VS screens; needs the converted assets):
+Regression tests (a CPU vs CPU match started through the title menu, select
+and VS screens, and a MUSOU mission from the title menu to its end; need the
+converted assets):
 
 ```bash
 python3 tools/pocket test ../pocket2d-games/BleachVsNaruto
@@ -91,7 +105,9 @@ Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_a
 `mode`: `watch` / `cpu` / `pvp` / `training`, `level` 1-6, `skip_intro`),
 `set_qi`, `set_hp`, `end_match` (`winner`), `goto` (`stage`: `title`,
 `select`, `option`, `credits`, `howtoplay`, `logo`, `winner`, `continue`,
-`gameover`, `congratulations`), `set_option` and `options` on the `Game` actor.
+`gameover`, `congratulations`, `worldmap`), `set_option` and `options` on the `Game` actor,
+and for MUSOU `musou_start` (`area`, `mission`, `team`, `auto`, `ai_level`, `fresh`, `skip_intro`),
+`musou_state`, `musou_debug`, `musou_data` and `musou_dialog`.
 Runs that should not touch your saved options can set `POCKET_SAVE_ROOT` to a
 scratch directory.
 

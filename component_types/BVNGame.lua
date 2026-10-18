@@ -1,9 +1,11 @@
 -- Bleach vs Naruto on Pocket2D: the original stage flow (MainGame): boot,
 -- logo, title menu, how-to-play, fighter select, the VS loading screen,
 -- fights (BVNBattle) with the pause dialog, winner / continue / game over /
--- congratulations for arcade (MessionModel), options and credits.
+-- congratulations for arcade (MessionModel), options and credits, and MUSOU
+-- ACRADE: the world map, LoadingMusouStage and the musou fight (BVNMusou*).
 -- Characters, maps and music are converted from 5DPLAY's assets by
--- tools/convert_bvn.py and tools/convert_maps.py, the screens by tools/convert_ui.py.
+-- tools/convert_bvn.py and tools/convert_maps.py, the screens by tools/convert_ui.py
+-- and tools/convert_musou_ui.py.
 local S = setmetatable({}, {__index = function(_, k) return BVNScreen[k] end})
 
 BVNGame = {
@@ -14,6 +16,10 @@ BVNGame = {
 	p1_hp = 0,
 	p2_hp = 0,
 	score = 0,
+	-- MUSOU: the last mission's result (1 complete, 2 failed), the wave and the KO count.
+	musou_result = 0,
+	musou_wave = 0,
+	musou_ko = 0,
 
 	-- Adds arcade score (GameLogic.addScore: x0.8 in the classic key mode).
 	-- The battle calls it for hits and KOs: `if BVNGame.AddScore then BVNGame.AddScore(points) end`.
@@ -59,10 +65,73 @@ BVNGame = {
 	GoOption = function(self) self:Go(BVNScreenSetting.New(self)) end,
 	GoCredits = function(self) self:Go(BVNScreenFlow.NewCredits(self)) end,
 
-	-- STUB (owned by the coordinator next): MUSOU ACRADE's world map (WorldMapStage).
-	-- Until musou mode exists it returns to the title.
+	-- MUSOU ACRADE (MainGame.goWorldMap / loadGame / goMusouGame): the world map
+	-- (BVNMusouMap), LoadingMusouStage, then the musou fight (BVNMusouBattle).
 	GoWorldMap = function(self)
-		self:GoMenu()
+		self.mode, self.team = "musou", true
+		BVNScreen.Release()
+		self:Go(BVNMusouMap.NewWorldMap(self))
+	end,
+
+	LoadMusou = function(self, mission)
+		self:Go(BVNMusouMap.NewLoading(self, mission))
+	end,
+
+	-- opts (agent tests): auto = the CPU plays the team, aiLevel.
+	StartMusou = function(self, mission, opts)
+		opts = opts or {}
+		BVNScreen.Release()
+		BVNMusouDialog.Clear()
+		self.stage = nil
+		self.paused, self.pauseQueued, self.ending = nil, nil, nil
+		self.musou_result = 0
+		self.battle = BVNMusouBattle.New({mission = mission, team = BVNMusouData.Team(), auto = opts.auto, aiLevel = opts.aiLevel})
+		self.battleTicks = 0
+		self.match_winner = 0
+		self.phase_name = "musou"
+	end,
+
+	-- The musou fight: MusouPauseDialog, and back to the world map when it is over.
+	UpdateMusou = function(self, b)
+		self.battleTicks = (self.battleTicks or 0) + 1
+		if self.battleTicks == 2 and BVNTrans.Covered() then BVNTrans.Out() end
+		local draw = not BVNTrans.Covered()
+		if self.paused then
+			local r = BVNMusouDialog.UpdatePause(self.paused)
+			if r == "map" then
+				BVNMusouDialog.Clear()
+				self:GoWorldMap()
+				return
+			end
+			if r == "continue" then self.paused = nil end
+			b:Draw()
+			if self.paused and self.battle == b then
+				BVNScreen.textFloor = 1400
+				BVNMusouDialog.DrawPause(self.paused)
+			end
+		else
+			if b.phase == "over" and not self.ending then
+				self.ending = true
+				self.musou_result = b.result == "win" and 1 or 2
+				BVNTrans.In(function() self:GoWorldMap() end)
+			end
+			-- GameCtrl.renderPause: back pauses, after the start banner if it is still playing.
+			if S.Down("back", "menu") and not b.gameFinish then self.pauseQueued = true end
+			if self.pauseQueued and b:CanPause() and not BVNTrans.Busy() then
+				self.pauseQueued = nil
+				self.paused = BVNMusouDialog.Pause()
+				b:Draw()
+				BVNMusouDialog.DrawPause(self.paused)
+				return
+			end
+			b:Update()
+			if draw and self.battle == b then b:Draw() end
+		end
+		if self.battle == b then
+			self.phase_name = self.paused and "musou_pause" or "musou"
+			self.musou_wave, self.musou_ko = b.currentWave, b.koNum
+			self.p1_hp = b.current and b.current.hp or 0
+		end
 	end,
 
 	-- STUB (owned by the coordinator next): SURVIVOR after the select screen
@@ -213,6 +282,7 @@ BVNGame = {
 	end,
 
 	UpdateBattle = function(self, b)
+		if b.musou then return self:UpdateMusou(b) end
 		self.battleTicks = (self.battleTicks or 0) + 1
 		-- GameStartCtrl uncovers the screen; if the battle does not, do it here.
 		if self.battleTicks == 2 and BVNTrans.Covered() then BVNTrans.Out() end
@@ -267,7 +337,15 @@ BVNGame = {
 		end
 		if not b then
 			local st = self.stage
-			return {phase = st and (st.phase or st.name), score = self.score, mode = self.mode}
+			local o = {phase = st and (st.phase or st.name), score = self.score, mode = self.mode}
+			if self.mode == "musou" then o.musou = BVNGame.MusouSummary() end
+			return o
+		end
+		if b.musou then
+			local o = b:Observe()
+			o.paused = self.paused ~= nil
+			o.data = BVNGame.MusouSummary()
+			return o
 		end
 		return {phase = b.phase, mode = b.mode, map = b.map.id, round = b.round, wins = b.wins, time = b.time,
 			p1 = fighter(b.fighters[1]), p2 = fighter(b.fighters[2]), sprites = #b.sprites, match_winner = b.matchWinner,
@@ -329,7 +407,7 @@ BVNGame = {
 			return {phase = bt.phase, winner = bt.matchWinner}
 		elseif name == "goto" then
 			-- Opens a screen directly (tests and agents): title, select, option, credits, howtoplay,
-			-- logo, winner, continue, gameover, congratulations. mode / team pick the game mode.
+			-- logo, winner, continue, gameover, congratulations, worldmap. mode / team pick the game mode.
 			local stg = args.stage
 			self.mode = args.mode or self.mode or "arcade"
 			if args.team ~= nil then self.team = args.team end
@@ -349,12 +427,110 @@ BVNGame = {
 				self:Go(BVNScreenFlow.NewGameOver(self, p1[1], self.score, stg == "continue"))
 			elseif stg == "congratulations" then
 				self:Go(BVNScreenFlow.NewCongratulations(self, self.score))
+			elseif stg == "worldmap" then
+				self:GoWorldMap()
 			else
 				return {ok = false}
 			end
 			return {ok = true, phase = self.phase_name}
 		elseif name == "options" then
 			return BVNSettings.Snapshot()
+		elseif name:sub(1, 6) == "musou_" then
+			return self:MusouCommand(name, args)
+		end
+		return nil
+	end,
+
+	-- The musou player data in brief (agents and tests).
+	MusouSummary = function()
+		local team = {}
+		for i, f in ipairs(BVNMusouData.Team()) do team[i] = {id = f.id, level = f.level, exp = f.exp} end
+		local areas = {}
+		for _, a in ipairs((BVNMusouData.Map(BVNMusouData.CurrentMapId()) or {areas = {}}).areas) do
+			if BVNMusouData.CheckAreaIsOpen(a.id) then areas[#areas + 1] = {id = a.id, percent = BVNMusouData.AreaPercent(a.id)} end
+		end
+		return {money = BVNMusouData.Money(), area = BVNMusouData.CurrentAreaId(), team = team, fighters = #BVNMusouData.Fighters(),
+			open = areas}
+	end,
+
+	-- Musou agent commands:
+	--   musou_start {area, mission, team = {ids}, auto, ai_level, fresh, skip_intro}: a mission at once
+	--     (default: the current area's next mission); fresh starts from new player data (written when the game next saves).
+	--   musou_state: the mission, or the player data outside a mission.
+	--   musou_debug {kill = "mooks" | "all" | "boss", hp, time, wave, qi}: test shortcuts in a mission.
+	--   musou_data {money, level = {id = lv}, open = {area ids}, pass = {area, mission}, current, team = {ids},
+	--     fighters = {ids}, save, reset}: edit the player data.
+	--   musou_dialog {name = "state" | "select" | "confirm" | "alert"}: open a world map dialog.
+	MusouCommand = function(self, name, args)
+		local D = BVNMusouData
+		if name == "musou_start" then
+			if args.fresh then D.New() end
+			if args.team then for i, id in ipairs(args.team) do D.AddFighter(id); D.SetTeam(i, id) end end
+			if args.area then
+				D.OpenArea(D.CurrentMapId(), args.area)
+				D.SetCurrentArea(args.area)
+			end
+			local area = args.area or D.CurrentAreaId()
+			local mission = args.mission and D.Mission(D.CurrentMapId(), area, tostring(args.mission)) or D.NextMission(area)
+			if not mission then return {ok = false, error = "no mission"} end
+			BVNTrans.Clear()
+			self:StartMusou(mission, {auto = args.auto, aiLevel = args.ai_level})
+			local b = self.battle
+			if args.skip_intro then
+				b.hud.ko.playing, b.hud.ko.cbs = false, {}
+				b.startDone = true
+			end
+			return {ok = true, mission = mission.id, area = area, map = mission.map, waves = #mission.waves}
+		elseif name == "musou_state" then
+			local b = self.battle
+			if b and b.musou then return b:Observe() end
+			return {phase = self.phase_name, result = self.musou_result, data = BVNGame.MusouSummary()}
+		elseif name == "musou_debug" then
+			local b = self.battle
+			if not (b and b.musou) then return {ok = false} end
+			if args.kill then
+				for _, f in ipairs(b.stageEnemies) do
+					if f.alive and f.active and (args.kill == "all" or (args.kill == "boss") == (f.musouBoss == true)) then
+						f.hp = 0
+						f.alive = false
+						b:OnDie(f)
+						if not f:IsHurting() and f.state ~= 30 then f:PlayHurtDown() end
+					end
+				end
+			end
+			if args.hp then b.current.hp = args.hp end
+			if args.qi then b.current.qi = args.qi end
+			if args.time then b.gameTime = args.time * 30 end
+			if args.wave then b.renderTimer = -1 end
+			return {ok = true, state = b:Observe()}
+		elseif name == "musou_data" then
+			if args.reset then D.New() end
+			if args.money then D.LoseMoney(D.Money()); D.AddMoney(args.money) end
+			for _, id in ipairs(args.fighters or {}) do D.AddFighter(id) end
+			if args.team then for i, id in ipairs(args.team) do D.AddFighter(id); D.SetTeam(i, id) end end
+			for id, lv in pairs(args.level or {}) do
+				local f = D.FighterData(id)
+				if f then f:UpdateLevel(lv) end
+			end
+			for _, a in ipairs(args.open or {}) do D.OpenArea(D.CurrentMapId(), a) end
+			if args.pass then
+				local cur = D.CurrentAreaId()
+				D.SetCurrentArea(args.pass.area)
+				local m = D.Mission(D.CurrentMapId(), args.pass.area, tostring(args.pass.mission))
+				if m then D.PassMission(m) end
+				D.SetCurrentArea(cur)
+			end
+			if args.current then D.SetCurrentArea(args.current) end
+			if args.save then D.Save() end
+			return BVNGame.MusouSummary()
+		elseif name == "musou_dialog" then
+			local st = self.stage
+			if not (st and st.name == "worldmap") then return {ok = false} end
+			if args.name == "state" then BVNMusouDialog.Show(BVNMusouDialog.NewState())
+			elseif args.name == "select" then BVNMusouDialog.Show(BVNMusouDialog.NewSelect(args.index or 1))
+			elseif args.name == "confirm" then st:GotoMission(D.Area(D.CurrentMapId(), D.CurrentAreaId()))
+			elseif args.name == "alert" then BVNMusouDialog.Alert("NOT OPEN", "暂未开放") end
+			return {ok = true}
 		end
 		return nil
 	end,

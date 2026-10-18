@@ -1,0 +1,894 @@
+{
+  "version": 1,
+  "name": "musou_mission",
+  "description": "MUSOU ACRADE through the original screens: title menu, MUSOU PLAY > MUSOU ACRADE, the world map (the current area p1 with the attack key), the mission confirm (YES), LoadingMusouStage, then area p1's first mission (six waves of mooks) played by holding attack and turning, to MISSION COMPLETE.",
+  "seed": 1,
+  "max_frames": 14000,
+  "frames_per_step": 4,
+  "controls": {
+    "actions": [
+      "confirm",
+      "p1_down",
+      "p1_attack",
+      "p1_move"
+    ]
+  },
+  "success": [
+    {
+      "actor": "Game",
+      "component": "game",
+      "property": "musou_result",
+      "op": "==",
+      "value": 1
+    }
+  ],
+  "failure": [
+    {
+      "actor": "Game",
+      "component": "game",
+      "property": "musou_result",
+      "op": "==",
+      "value": 2
+    }
+  ],
+  "script": [
+    {
+      "frames": 300,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "confirm": true
+      }
+    },
+    {
+      "frames": 40,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 10,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_down": true
+      }
+    },
+    {
+      "frames": 10,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 30,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 120,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 40,
+      "actions": {}
+    },
+    {
+      "frames": 2,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 600,
+      "actions": {}
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": 1
+      }
+    },
+    {
+      "frames": 150,
+      "actions": {
+        "p1_attack": true
+      }
+    },
+    {
+      "frames": 20,
+      "actions": {
+        "p1_attack": true,
+        "p1_move": -1
+      }
+    },
+    {
+      "frames": 1000,
+      "actions": {}
+    }
+  ]
+}
