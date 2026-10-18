@@ -212,3 +212,16 @@ plays a NET PLAY session between two headless games (room server, `--relay`,
 battles, a team battle and a VS PEOPLE match from the select. Set `POCKET_SAVE_ROOT`
 to a scratch directory for any run (options are saved). Run output stays
 under the engine's ignored `build/`.
+
+## Public source
+
+The port's code is GPL-3.0 (as the original kernel) and is published as
+[qiulinfan/bleach-vs-naruto-pocket](https://github.com/qiulinfan/bleach-vs-naruto-pocket),
+whose root is this folder; the source for every released build must be there.
+This folder stays the development home. To publish, export the committed
+folder (`git archive HEAD:BleachVsNaruto`) over a clone of the public
+repository, keep its `.gitmodules` (paths `external/...`) and point the
+submodule gitlinks at the commits `git ls-tree HEAD BleachVsNaruto/external/`
+names here, and commit with a message naming the pocket2d-games commit it was
+taken from. Never add converted assets, local configuration (`netplay.json`) or
+anything outside this folder.
