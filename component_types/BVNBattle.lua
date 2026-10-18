@@ -10,7 +10,8 @@ local function clamp(v, a, b) return math.max(a, math.min(b, v)) end
 local Battle = {}
 Battle.__index = Battle
 
-BVNBattle = {}
+-- Battle is exposed so other match types (musou) can inherit its methods.
+BVNBattle = {Battle = Battle}
 
 function BVNBattle.Intersects(a, b)
 	return a[1] < b[1] + b[3] and b[1] < a[1] + a[3] and a[2] < b[2] + b[4] and b[2] < a[2] + a[4]
@@ -455,6 +456,15 @@ function Battle:Update()
 		if self.sprites[i].dead then table.remove(self.sprites, i) end
 	end
 	self.phaseT = self.phaseT + 1
+	if self.skipHold then
+		-- A skipped start opens the fight after half a second, without the banner.
+		self.skipHold = self.skipHold - 1
+		if self.skipHold <= 0 then
+			self.skipHold = nil
+			self.start = {}
+			self:FinishStart()
+		end
+	end
 	if self.start then self:RenderStart() end
 	if self.endCtrl then self:RenderEndCtrl() end
 	if self.training then self:UpdateTraining() end
@@ -592,6 +602,20 @@ function Battle:RenderStart()
 		self.phase, self.phaseT = "go", 0
 		BVNHud.Banner(self, self.round < 5 and "start" or "start_final", self.round < 5 and "start_final" or "go:fight", -50)
 	end
+end
+
+-- GameStartCtrl.skip / GameEndCtrl.skip.
+function Battle:Skip()
+	local st = self.start
+	if st and self.phase == "intro" and st.step < 5 then
+		if BVNTrans and BVNTrans.Quick then BVNTrans.Quick() end
+		self:CameraResume()
+		for _, f in ipairs(self.fighters) do f:Idle() end
+		self.start = nil
+		self.skipHold = 30
+	end
+	local e = self.endCtrl
+	if e and e.step == 2 then e.hold = 0 end
 end
 
 function Battle:SayIntro(f)

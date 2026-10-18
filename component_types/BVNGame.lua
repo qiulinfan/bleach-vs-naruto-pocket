@@ -233,8 +233,13 @@ BVNGame = {
 				BVNTrans.In(function() self:AfterMatch() end)
 			end
 		else
-			-- GameCtrl: back pauses; during the start and end sequences the pause waits.
-			if S.Down("back", "menu") then self.pauseQueued = true end
+			-- GameCtrl.renderPause: during the start and end sequences back (or select) skips
+			-- them; otherwise back pauses.
+			if b.start or b.endCtrl then
+				if S.Down("back", "menu") or S.Down("select", "menu") then b:Skip() end
+			elseif S.Down("back", "menu") then
+				self.pauseQueued = true
+			end
 			if self.pauseQueued and b.phase == "fight" and not BVNTrans.Busy() then
 				self.pauseQueued = nil
 				self.paused = BVNScreenDialog.Pause(function() self:GoMenu() end, nil)
