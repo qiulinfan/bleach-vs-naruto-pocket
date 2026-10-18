@@ -30,9 +30,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 # The engine checkout: POCKET2D_ENGINE, else a pocket2d folder beside this project
 # (a clone of this repository) or beside its parent (inside pocket2d-games).
-ENGINE = next((p for p in [Path(os.environ["POCKET2D_ENGINE"])] if "POCKET2D_ENGINE" in os.environ),
-              next((p for p in (ROOT.parent / "pocket2d", ROOT.parent.parent / "pocket2d") if p.is_dir()),
-                   ROOT.parent / "pocket2d"))
+def find_engine():
+    if os.environ.get("POCKET2D_ENGINE"):
+        return Path(os.environ["POCKET2D_ENGINE"])
+    for candidate in (ROOT.parent / "pocket2d", ROOT.parent.parent / "pocket2d"):
+        if candidate.is_dir():
+            return candidate
+    return ROOT.parent / "pocket2d"
+
+
+ENGINE = find_engine()
 
 
 class Agent:
