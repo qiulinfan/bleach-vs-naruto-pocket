@@ -55,6 +55,11 @@ BVNGame = {
 	GoLogo = function(self) self:Go(BVNScreenFlow.NewLogo(self)) end,
 
 	GoMenu = function(self)
+		-- In a net session the title (pause GAME TITLE, back on select) ends it on both machines.
+		if BVNNet.Active() then
+			BVNNet.Stop(self, nil)
+			return
+		end
 		BVNTrans.Clear()
 		BVNScreen.Release()
 		self:Go(BVNMenu.NewTitle(self))
@@ -259,6 +264,7 @@ BVNGame = {
 
 	OnUpdate = function(self)
 		self:Init()
+		BVNNet.Update(self)
 		BVNScreen.Poll()
 		Camera.SetZoom(1)
 		Camera.SetPosition(6.4, 3.6)
@@ -279,6 +285,7 @@ BVNGame = {
 			if self.stage then self.phase_name = self.stage.phase or self.stage.name end
 		end
 		BVNTrans.Draw()
+		BVNNet.Draw(self)
 	end,
 
 	UpdateBattle = function(self, b)
@@ -407,7 +414,7 @@ BVNGame = {
 			return {phase = bt.phase, winner = bt.matchWinner}
 		elseif name == "goto" then
 			-- Opens a screen directly (tests and agents): title, select, option, credits, howtoplay,
-			-- logo, winner, continue, gameover, congratulations, worldmap. mode / team pick the game mode.
+			-- logo, winner, continue, gameover, congratulations, worldmap, netplay. mode / team pick the game mode.
 			local stg = args.stage
 			self.mode = args.mode or self.mode or "arcade"
 			if args.team ~= nil then self.team = args.team end
@@ -429,12 +436,34 @@ BVNGame = {
 				self:Go(BVNScreenFlow.NewCongratulations(self, self.score))
 			elseif stg == "worldmap" then
 				self:GoWorldMap()
+			elseif stg == "netplay" then
+				self:Go(BVNNet.New(self))
 			else
 				return {ok = false}
 			end
 			return {ok = true, phase = self.phase_name}
 		elseif name == "options" then
 			return BVNSettings.Snapshot()
+		elseif name == "net_host" or name == "net_join" then
+			-- NET PLAY for tests: net_host {lan, port, team, relay}, net_join {room, relay} or {address} (LAN).
+			BVNTrans.Clear()
+			local st = BVNNet.New(self)
+			self:Go(st)
+			if args.team ~= nil then BVNNet.team = args.team end
+			BVNNet.relay = args.relay == true
+			BVNNet.lanPort = args.port
+			if name == "net_host" then
+				st.Host(args.lan == true)
+			else
+				st.view = args.address and "lan" or "code"
+				st.Join(args.address or args.room)
+			end
+			return {view = st.view, message = st.message, status = Net.Status()}
+		elseif name == "net_state" then
+			local ses = BVNNet.session
+			return {status = Net.Status(), phase = self.phase_name, mode = self.mode, team = self.team,
+				started = ses and ses.started or false, frame = ses and ses.frame, desync = ses and ses.desync,
+				hash = BVNNet.Hash(self), seed = BVNRuntime.seed, message = self.stage and self.stage.message}
 		elseif name:sub(1, 6) == "musou_" then
 			return self:MusouCommand(name, args)
 		end

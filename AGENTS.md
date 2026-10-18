@@ -118,9 +118,27 @@ the submodules under `external/`; everything converted from them is ignored
   the battle's own `fx`). The original is mouse driven; the mouse works and
   the keyboard drives a pointer (map: arrows between open areas, attack /
   confirm selects, skill opens the team; dialogs: arrows, select, back).
+- NET PLAY (`BVNNet`): the engine's lockstep netplay (`Net`). Configured with
+  `local_prefix = "p1_"`, sides p1_ / p2_, shared confirm / back, automatic
+  delay. The host's payload carries the version string (`VERSION`; bump it when
+  gameplay changes), MODE (team) and the life / time / key-mode options. The
+  first lockstep tick (`BVNNet.Start`) on both machines seeds `BVNRuntime.seed`
+  from the session, applies the payload, clears transitions, screen input and
+  picks and opens the VS PEOPLE select. While `BVNScreen.net` is set, "menu"
+  input is either player, each side selects with its own attack (confirm is
+  shared), and `AnyKey` ignores raw keys. GoMenu during a session ends it
+  (`BVNNet.Stop`, both machines return to the NET PLAY screen); a lost peer
+  does the same with a message. Every 60 ticks `BVNNet.Hash` (seed, round,
+  time, fighters' x / y / hp / qi / energy / state / dir, sprite count) goes to
+  `Net.Checksum`; a desync shows a red warning. Room codes and LAN addresses
+  are typed with raw keys before the session starts. Gameplay must stay
+  deterministic: no raw keys, mouse, time or `math.random` in anything a
+  session reaches (musou is not reachable from NET PLAY).
 - Agent commands besides the fight ones: `goto` (`stage`: title, select,
   option, credits, howtoplay, logo, winner, continue, gameover,
-  congratulations, worldmap; `mode`, `team`, `p1` / `p1_team`), `end_match`
+  congratulations, worldmap, netplay; `mode`, `team`, `p1` / `p1_team`),
+  `net_host` (`lan`, `port`, `team`, `relay`), `net_join` (`room` or
+  `address`), `net_state`, `end_match`
   (`winner`), `set_option` (`key`, `value`, `save`) and `options`; for musou
   `musou_start` (`area`, `mission`, `team`, `auto` / `ai_level` for a CPU
   team, `fresh`, `skip_intro`), `musou_state`, `musou_debug` (`kill`: mooks /
@@ -133,14 +151,16 @@ the submodules under `external/`; everything converted from them is ignored
 
 ## Open work
 
-- Not ported yet: the language stage, LAN play, mouse input on the screens
-  (the musou world map and dialogs take it).
+- Not ported yet: the language stage, mouse input on the screens (the musou
+  world map and dialogs take it). The Flash LAN PLAY is replaced by NET PLAY.
+- NET PLAY: cross-platform determinism (macOS arm64 against Windows x64) is
+  untested on real machines; render-only code uses sin / cos, gameplay does not.
 - Musou approximations: the fighter list jumps between pages instead of
   sliding (no scrollRect clipping); the coin button's add-money (an ad SDK
   hook) does nothing; the time reads MM:SS (KyoTimerFormat is not in the
   sources); the HUD clips that the original plays natively run at 60 fps,
-  startKOmc at 30 as in renderStartAndKO; texts use `fonts/bvn.ttf`, which
-  lacks 图 币 枚 入 until `tools/make_assets.py --font` is rerun. `BVNGame.StartSurvivor` plays an arcade ladder; the
+  startKOmc at 30 as in renderStartAndKO; texts use `fonts/bvn.ttf` (rerun
+  `tools/make_assets.py --font` after adding Chinese text). `BVNGame.StartSurvivor` plays an arcade ladder; the
   battle plays survivor fights as one round each.
 - Screen approximations: the continue screen shows the loser's win portrait
   instead of the fighter in its lose pose; the loading bar fills over 0.5 s
@@ -166,6 +186,9 @@ WATCH, select, map, VS screen) to a finished CPU match;
 ACRADE, the world map, the mission confirm and LoadingMusouStage to MISSION
 COMPLETE in area p1's first mission (Game.musou_result 1 = complete, 2 =
 failed). Screens can be opened
-directly with the `goto` command for rendered checks. Set `POCKET_SAVE_ROOT`
+directly with the `goto` command for rendered checks. `tools/net_test.py`
+plays a NET PLAY session between two headless games through a local room
+server (`--relay`; `--lan --lag MS --loss F` through a lossy proxy) and checks
+both machines stay in the same state. Set `POCKET_SAVE_ROOT`
 to a scratch directory for any run (options are saved). Run output stays
 under the engine's ignored `build/`.

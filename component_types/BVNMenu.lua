@@ -12,8 +12,9 @@ local function fighterList() return BVNConfig.fighter.fighter.data end
 local function assistList() return BVNConfig.assist.fighter.data end
 
 -- Menus (GameInterfaceManager.getGameMenu, PC). SURVIVOR is commented out there
--- ("暂未开放"); it is listed here where that comment sits. LAN PLAY, MORE GAMES and
--- EXIT are web / desktop-shell entries and are left out.
+-- ("暂未开放"); it is listed here where that comment sits. MORE GAMES and EXIT are
+-- web / desktop-shell entries and are left out; the Flash LAN PLAY entry becomes
+-- NET PLAY, Pocket2D netplay (BVNNet).
 local MENU = {
 	{txt = "TEAM PLAY", cn = "小队模式", children = {
 		{txt = "TEAM ACRADE", cn = "闯关模式"}, {txt = "TEAM VS PEOPLE", cn = "2P对战"},
@@ -22,6 +23,7 @@ local MENU = {
 		{txt = "SINGLE ACRADE", cn = "闯关模式"}, {txt = "SINGLE VS PEOPLE", cn = "2P对战"},
 		{txt = "SINGLE VS CPU", cn = "对战电脑"}, {txt = "SINGLE WATCH", cn = "观战电脑"}}},
 	{txt = "MUSOU PLAY", cn = "无双模式", children = {{txt = "MUSOU ACRADE", cn = "无双模式"}}},
+	{txt = "NET PLAY", cn = "联机对战"},
 	{txt = "SURVIVOR", cn = "挑战模式"},
 	{txt = "OPTION", cn = "游戏设置"},
 	{txt = "TRAINING", cn = "练习模式"},
@@ -186,6 +188,8 @@ function Title:Run(g, label)
 	elseif label == "MUSOU ACRADE" then
 		g.mode, g.team = "musou", true
 		g:GoWorldMap()
+	elseif label == "NET PLAY" then
+		g:Go(BVNNet.New(g))
 	elseif label == "OPTION" then
 		g:GoOption()
 	elseif label == "CREDITS" then

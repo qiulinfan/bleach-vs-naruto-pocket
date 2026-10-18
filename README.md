@@ -18,6 +18,8 @@ of the original ActionScript kernel.
 - MUSOU (无双) mode: the world map's areas and missions, waves of mooks and
   bosses against a team of three that levels up, coins to buy fighters; the
   progress is saved.
+- NET PLAY (联机对战): versus on two computers, through a room code or on the
+  same LAN.
 
 ## Controls
 
@@ -46,6 +48,25 @@ works as in the original (click an area, drag, wheel to zoom, the face opens
 the team); with the keyboard W/A/S/D move between open areas, J or Enter
 selects (the current area asks for its next mission), U opens the team and
 Escape leaves.
+
+## Playing over the network
+
+NET PLAY on the title menu. Both players use their own player 1 keys; the
+host plays player 1, the guest player 2. On the select screen each player
+picks with J; elsewhere either player's Enter confirms and Escape goes back or
+pauses for both.
+
+- CREATE ROOM shows a four-letter room code; the friend picks JOIN ROOM and
+  types it. This needs a room server (the engine's `tools/room_server`, see the
+  engine's `docs/development/netplay.md`) named in `netplay.json` beside
+  `game.config`: `{"server": "SERVER_IP:27777"}` (or the `POCKET_NET_SERVER`
+  environment variable).
+- On the same network, LAN HOST shows the host's address and LAN JOIN connects
+  to it (UDP port 27778).
+- MODE picks single or team versus. The host's life, time and key mode
+  options apply to both.
+
+Both computers need the same version of the game.
 
 ## Setting up the assets
 
@@ -105,11 +126,20 @@ Agents can call `start_battle` (`p1`, `p2` or `p1_team` / `p2_team` lists, `p1_a
 `mode`: `watch` / `cpu` / `pvp` / `training`, `level` 1-6, `skip_intro`),
 `set_qi`, `set_hp`, `end_match` (`winner`), `goto` (`stage`: `title`,
 `select`, `option`, `credits`, `howtoplay`, `logo`, `winner`, `continue`,
-`gameover`, `congratulations`, `worldmap`), `set_option` and `options` on the `Game` actor,
+`gameover`, `congratulations`, `worldmap`, `netplay`), `set_option`, `options`, `net_host`
+(`lan`, `port`, `team`, `relay`), `net_join` (`room` or `address`) and `net_state` on the `Game` actor,
 and for MUSOU `musou_start` (`area`, `mission`, `team`, `auto`, `ai_level`, `fresh`, `skip_intro`),
 `musou_state`, `musou_debug`, `musou_data` and `musou_dialog`.
 Runs that should not touch your saved options can set `POCKET_SAVE_ROOT` to a
 scratch directory.
+
+Netplay test (a local room server and two games playing a session; `--relay`
+forces relaying, `--lan --lag 60 --loss 0.1` connects over the LAN through a
+proxy adding 60 ms each way and 10% loss):
+
+```bash
+python3 ../pocket2d-games/BleachVsNaruto/tools/net_test.py
+```
 
 ## Credits and licenses
 

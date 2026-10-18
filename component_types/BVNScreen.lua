@@ -197,7 +197,16 @@ BVNScreen = {
 	end,
 
 	-- GameInputer.<kind>(type, 1): kind up/down/left/right/select/back, who "menu", 1 or 2.
+	-- In a net session (BVNScreen.net) "menu" is either player and the shared
+	-- confirm does not pick for a side: each side picks with its own attack.
 	Down = function(kind, who)
+		if BVNScreen.net then
+			if who == "menu" and kind ~= "back" then
+				if kind == "select" and Input.GetActionDown("confirm") then return true end
+				return BVNScreen.Down(kind, 1) or BVNScreen.Down(kind, 2)
+			end
+			if kind == "select" then return Input.GetActionDown(who == 2 and "p2_attack" or "p1_attack") end
+		end
 		local s = BVNScreen.inp or {edge = {0, 0}}
 		local A = Input.GetActionDown
 		local side = who == 2 and 2 or 1
@@ -219,7 +228,8 @@ BVNScreen = {
 	end,
 
 	AnyKey = function()
-		if Input.GetAnyKeyDown() then return true end
+		-- Raw keys are local to one machine: never in a net session.
+		if not BVNScreen.net and Input.GetAnyKeyDown() then return true end
 		local A = Input.GetActionDown
 		for _, n in ipairs({"confirm", "back", "p1_up", "p1_down", "p1_attack", "p1_jump", "p1_dash", "p1_skill", "p1_super",
 			"p1_assist"}) do
