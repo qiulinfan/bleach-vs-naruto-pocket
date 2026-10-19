@@ -160,7 +160,11 @@ the submodules under `external/`; everything converted from them is ignored
   GoMenu during a session ends it (`BVNNet.Stop`, both machines return to the
   NET PLAY screen); a lost peer does the same with a message. Every 60 ticks
   `BVNNet.Hash` (seed, round, time, fighters' x / y / hp / qi / energy / state
-  / dir, sprite count) goes to `Net.Checksum`; a desync shows a red warning.
+  / dir, sprite count) goes to `Net.Checksum` (by the session's tick). On a
+  desync the engine repairs the guest from the host's state (about 100 KB,
+  a second at 150 ms each way) and a red line shows meanwhile; `BVNSettings`,
+  `BVNNet`, `BVNKeys` and `BVNMusouData` are `Net.Local` (each machine's own),
+  so mark any new per-machine module there too (`BVNGame.Init`).
   Room codes, addresses and codes are typed with raw keys before the session
   starts.
 - Rollback: the snapshots walk everything reachable from the globals, so all
@@ -234,6 +238,9 @@ directly with the `goto` command for rendered checks. `tools/net_test.py`
 plays a NET PLAY session between two headless games (room server, `--relay`,
 `--discover`, `--code`, `--lan --lag MS --loss F` through a lossy proxy,
 `--lockstep`) and checks both machines stay in the same state;
+`tools/net_pace_test.py` runs both on real-time clocks over a slow link and
+checks the sounds each heard; `tools/net_desync_test.py` changes one
+machine's battle inside a tick (`net_perturb`) and checks the repair;
 `tools/rollback_test.py` runs the engine's rollback sync test over CPU
 battles, a team battle and a VS PEOPLE match from the select. Set `POCKET_SAVE_ROOT`
 to a scratch directory for any run (options are saved). Run output stays

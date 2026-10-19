@@ -40,6 +40,9 @@ BVNGame = {
 		BVNGame.current = self
 		-- Converted data never changes: netplay rollback snapshots leave it out.
 		Net.Static(BVNConfig, BVNFxData, BVNMaps, BVNMusouConfig, BVNUIData)
+		-- This machine's own: options, the session's side and link, key settings, musou progress.
+		-- A resync from the NET PLAY host leaves them as they are.
+		if Net.Local then Net.Local(BVNSettings, BVNNet, BVNKeys, BVNMusouData) end
 		BVNRuntime.seed = 20261017
 		BVNSettings.Load()
 		BVNKeys.Load()
@@ -532,6 +535,54 @@ BVNGame = {
 			local t3 = os.clock()
 			return {objects = Net.Snapshot(0, "objects"), save_ms = (t1 - t0) * 1000 / n, load_ms = (t2 - t1) * 1000,
 				hash_ms = (t3 - t2) * 1000, hash = h}
+		elseif name == "net_export" then
+			-- Desync recovery's portable state, round-tripped here: export, change the battle
+			-- ({perturb}), import, and the game's hash should be the exported one again.
+			Net.Track(_G)
+			local h0 = BVNNet.Hash(self)
+			local t0 = os.clock()
+			local data = Net.Snapshot(0, "export")
+			local t1 = os.clock()
+			if args.perturb then self:NetPerturb(args.perturb) end
+			local h1 = BVNNet.Hash(self)
+			local t2 = os.clock()
+			local stats, err = Net.Snapshot(0, "import", data)
+			local t3 = os.clock()
+			if args.file and io and io.open then local fh = io.open(args.file, "wb"); if fh then fh:write(data); fh:close() end end
+			return {bytes = #data, export_ms = (t1 - t0) * 1000, import_ms = (t3 - t2) * 1000, stats = stats, error = err,
+				hash = h0, perturbed = h1, after = BVNNet.Hash(self)}
+		elseif name == "net_dump" then
+			-- Every scalar reachable from _G by its path (desync tests: what differs between the
+			-- machines), written to {file}; static data is left out ({skip} keys).
+			local seen, lines, skip = {}, {}, {sprites = true, frames = true, data = true}
+			for _, k in ipairs(args.skip or {}) do skip[k] = true end
+			local function walk(t, path, depth)
+				if seen[t] or depth > 14 then return end
+				seen[t] = true
+				for k, v in pairs(t) do
+					local kt = type(k)
+					if kt == "string" or kt == "number" then
+						local p = path .. "/" .. tostring(k)
+						local vt = type(v)
+						if vt == "table" then
+							if not skip[k] then walk(v, p, depth + 1) end
+						elseif vt == "number" or vt == "string" or vt == "boolean" then
+							lines[#lines + 1] = p .. "=" .. tostring(v)
+						end
+					end
+				end
+			end
+			walk(_G, "", 0)
+			table.sort(lines)
+			local fh = io.open(args.file, "wb")
+			fh:write(table.concat(lines, "\n"))
+			fh:close()
+			return {lines = #lines}
+		elseif name == "net_perturb" then
+			-- Desync recovery tests: this machine's battle changes inside a coming session tick
+			-- ({after, side, hp, x}), and again whenever that tick is simulated again.
+			BVNNet.Perturb(args)
+			return {frame = Net.Status().frame}
 		elseif name == "net_synctest" then
 			-- A rollback sync test of whatever runs now (start a battle first): {frames}.
 			Net.Track(_G)
@@ -546,6 +597,14 @@ BVNGame = {
 			return self:MusouCommand(name, args)
 		end
 		return nil
+	end,
+
+	NetPerturb = function(self, args)
+		local b = self.battle
+		if not b then return end
+		if type(args) ~= "table" then args = {} end
+		local f = b.fighters[args.side or 1]
+		if f then f.hp = f.hp - (args.hp or 7); f.x = f.x + (args.x or 13) end
 	end,
 
 	-- The musou player data in brief (agents and tests).

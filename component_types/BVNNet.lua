@@ -17,7 +17,7 @@ local WHITE = {255, 255, 255}
 local YELLOW = {253, 237, 101}
 local RED = {255, 110, 90}
 local GREY = {170, 170, 170}
-local VERSION = "bvn-net-4"
+local VERSION = "bvn-net-5"
 local CHECK_EVERY = 60
 local GAME_ID = "bleach_vs_naruto"
 
@@ -372,6 +372,12 @@ end
 
 -- Session --------------------------------------------------------------------------------
 
+-- Desync tests (net_perturb): changes to one machine's battle at a session tick, made
+-- inside that tick and so again whenever it is simulated again, as a nondeterminism
+-- bug would. Static: rollback leaves the table alone.
+local PERTURB = {}
+Net.Static(PERTURB) -- before any snapshot has it
+
 local function hashState(g)
 	local h = 2166136261
 	local function mix(v)
@@ -461,7 +467,12 @@ BVNNet = {
 			return
 		end
 		ses.frame = ses.frame + 1
-		if ses.frame % CHECK_EVERY == 0 then Net.Checksum(Net.Status().frame, hashState(g)) end
+		-- By the session's tick: BVNNet is this machine's own (Net.Local), and a resync from the
+		-- host does not move its counter.
+		local f = Net.Status().frame
+		local p = PERTURB[f]
+		if p then g:NetPerturb(p) end
+		if f % CHECK_EVERY == 0 then Net.Checksum(f, hashState(g)) end
 	end,
 
 	-- After the screens: the desync warning, the ping and the netcode.
@@ -469,8 +480,12 @@ BVNNet = {
 		local ses = BVNNet.session
 		if not (ses and ses.started) or Net.IsResimulating() then return end
 		local s = Net.Status()
-		if s.desync then
-			S.Text("画面不同步 (帧 " .. tostring(s.desync_frame) .. ")：双方的游戏状态已不一致", 0, 4, 16, RED, "center", 800, 1, 5000)
+		if s.desync or s.resyncing then
+			-- The engine repairs a desync from the host's state (a second or so); after five it stays.
+			local text = (s.resync_error ~= nil and s.resync_error ~= "") and ("画面不同步，修复失败 (帧 " .. tostring(s.desync_frame) .. ")")
+				or (s.resyncs or 0) >= 5 and ("画面不同步 (帧 " .. tostring(s.desync_frame) .. ")：双方的游戏状态已不一致")
+				or "画面不同步，正在从主机同步…"
+			S.Text(text, 0, 4, 16, RED, "center", 800, 1, 5000)
 		end
 		local q, qc = quality(s)
 		if q then
@@ -482,4 +497,9 @@ BVNNet = {
 	end,
 
 	Hash = hashState,
+
+	-- Desync tests: {after} ticks from now this machine changes its battle ({side, hp, x}).
+	Perturb = function(args)
+		PERTURB[Net.Status().frame + (args.after or 20)] = args
+	end,
 }
