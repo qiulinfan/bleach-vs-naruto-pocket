@@ -751,7 +751,8 @@ def split_members(src):
     frame_map = {}
     ctor = methods.get(cls)
     if ctor:
-        for idx, fn in re.findall(r"(\d+)\s*,\s*this\.([\w$]+)", ctor[1].split("addFrameScript", 1)[1] if "addFrameScript" in ctor[1] else ""):
+        # FFDec wraps the long call, sometimes between `this` and `.frameN`.
+        for idx, fn in re.findall(r"(\d+)\s*,\s*this\s*\.\s*([\w$]+)", ctor[1].split("addFrameScript", 1)[1] if "addFrameScript" in ctor[1] else ""):
             frame_map[int(idx) + 1] = fn
     return cls, fields, methods, frame_map
 

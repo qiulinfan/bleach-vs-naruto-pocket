@@ -17,7 +17,7 @@ local WHITE = {255, 255, 255}
 local YELLOW = {253, 237, 101}
 local RED = {255, 110, 90}
 local GREY = {170, 170, 170}
-local VERSION = "bvn-net-3"
+local VERSION = "bvn-net-4"
 local CHECK_EVERY = 60
 local GAME_ID = "bleach_vs_naruto"
 
