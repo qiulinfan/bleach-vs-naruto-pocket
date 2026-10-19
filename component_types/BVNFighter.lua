@@ -263,7 +263,7 @@ function Fighter:ChildPos(name)
 	local f = self:Frame()
 	local p = f and f.hits and f.hits["@" .. name]
 	local fo = self.formOffset
-	if p then return self.x + (p[1] * fo[3] + fo[1]) * self.dir, self.y + p[2] * fo[4] + fo[2] end
+	if p then return self.x + (p[1] * fo[3] + fo[1]) * self.dir, self.y + p[2] * fo[4] + fo[2], p end
 	return nil
 end
 

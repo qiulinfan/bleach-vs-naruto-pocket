@@ -322,7 +322,14 @@ class Converter:
             nm = obj.get("name")
             if nm and nm not in SPECIAL_NAMES and obj["cid"] in self.swf.sprites:
                 m = obj["m"]
-                out["@" + nm] = [round(m[4], 1), round(m[5], 1)]
+                p = [round(m[4], 1), round(m[5], 1)]
+                # Detached as a bullet, attacker or follow effect, the child keeps its placement's
+                # scale / rotation, alpha and colour transform: [x, y, a, b, c, d, alpha, ct].
+                alpha = round(max(obj.get("alpha", 1.0), 0), 3)
+                ct = [round(v, 3) for v in obj["ct"]] if obj.get("ct") else None
+                if ct or alpha < 0.999 or any(abs(v - w) > 1e-3 for v, w in zip(m[:4], (1, 0, 0, 1))):
+                    p += [round(v, 4) for v in m[:4]] + [alpha] + ([ct] if ct else [])
+                out["@" + nm] = p
                 # Its bounds too, for scripts that hitTest a named child (ulquiorra's sh20).
                 r = swfxml.transform_rect(m, self.swf.frame1_bounds(obj["cid"]))
                 if r:
