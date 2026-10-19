@@ -19,6 +19,8 @@ For every fighter, assist and musou mook of the original config:
   dark       flattened frames mostly made of opaque near-black pixels (to look at)
   scripts    frame scripts the generated Lua defines but never registers on a
              frame (they would never run)
+  masked     children drawn on their own (blended, split, animated) that a mask
+             covers in their parent (the runtime draws them unmasked)
 
 Writes JSON (--json) and prints a summary per character.
 Usage: tools/audit_bvn.py [--only ids...] [--json out.json]
@@ -264,6 +266,20 @@ class Audit:
                     out.append(img)
         return out
 
+    def masked_kids(self):
+        out = set()
+        for sid in self.conv.render_ids:
+            if sid not in self.swf.sprites:
+                continue
+            for dl, _, _ in self.swf.timeline(sid):
+                masks = [(d, o["clip"]) for d, o in dl.items() if o.get("clip")]
+                for d, o in dl.items():
+                    own = (swfxml.blend_kind(o) and o["cid"] in self.conv.blended) or o["cid"] in self.conv.split \
+                        or o["cid"] in self.conv.dynamic
+                    if masks and not o.get("clip") and own and any(m < d <= c for m, c in masks):
+                        out.add("%s>%s" % (sid, o["cid"]))
+        return sorted(out)
+
     def unregistered_scripts(self):
         lua = cb.DATA / ("BVNF_" + re.sub(r"\W", "_", self.fid) + ".lua")
         if not lua.exists():
@@ -291,6 +307,7 @@ class Audit:
             "kid_alpha": self.kid_alpha(),
             "dark": self.dark_images(),
             "scripts": self.unregistered_scripts(),
+            "masked": self.masked_kids(),
         }
 
 
@@ -329,6 +346,8 @@ def main():
             flags.append("canvas %d: %s" % (len(r["canvas"]), " ".join("%s%s" % (k, v) for k, v in list(r["canvas"].items())[:3])))
         if r["dark"]:
             flags.append("dark %d" % len(r["dark"]))
+        if r["masked"]:
+            flags.append("masked kids %s" % " ".join(r["masked"][:4]))
         if r["scripts"]:
             flags.append("unregistered scripts %s" % " ".join(r["scripts"][:4]))
         print("%-22s forms %-14s %s" % (fid, r["forms"], ", ".join(flags) or "ok"))

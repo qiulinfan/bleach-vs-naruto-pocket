@@ -16,7 +16,8 @@ written by hand.
   entry's start form (main_mc frame `start_frame + 1`) and every main_mc frame
   the form scripts jump to; sprites whose bounds outgrow the canvas FFDec
   rendered; frames mostly made of opaque near-black pixels (looked at by
-  hand); frame scripts the generated Lua defines but never registers.
+  hand); frame scripts the generated Lua defines but never registers;
+  children drawn on their own that a mask covers.
 - **In battle, the real runtime** (`tools/battle_audit.py`, agent protocol,
   headless): per fighter a battle against Naruto with qi, energy and assist
   topped up before every move: idle, walk, the J chain, S+J, W+J, U, S+U, W+U,
@@ -76,7 +77,10 @@ Converter (`tools/`):
   checks that every frame script is registered.
 - The translator handles `++n` / `a = b = c` inside expressions (karin's
   上必杀 loop, naruto_hermit's 空中必杀), `new X().y` and
-  `getDefinitionByName`.
+  `getDefinitionByName`, and folds an obfuscator's `§§push(x); switch(n) {}
+  §§pop()` no-op FFDec leaves undecompiled: fz_jiraiya's assist never defined
+  its attacks (it hit for nothing, now 300 damage) and sasuke_susanoo_old's
+  ultimate never ended its darkened screen. No script is left untranslated.
 
 ## Results
 
@@ -112,18 +116,25 @@ original shows the same form).
 
 - Legitimately blank frames: sasuke_susanoo (2) and ulquiorra (5) have frames
   whose content is fully transparent or hidden in the SWF as well.
-- Not translated: two script classes whose bytecode FFDec cannot decompile
-  (sasuke_susanoo_old frame 1206, fz_jiraiya's `setAssistCtrler`); fz_soifong,
-  fz_yin and minato have no main_mc and are not in the roster.
-- Vector effects scaled up at run time are drawn from images rendered at their
-  own size, so large ones look soft or pixelated (nearest sampling).
-- Masks over blended children are not applied (the children draw unmasked).
-- Lee's green silhouettes, ulquiorra's dark smoke and aizen's black 黑棺 are
-  the SWFs' own art (colour transforms and dark bitmaps), drawn as authored.
-- Seen on the sheets but not confirmed against the Flash player, so left as
-  they are: a faint navy rectangle in kenshin's S+I, a white spiky shape in
-  toushirou_bankai's ultimate, the map backdrop of deidara's ultimate staying
-  a little longer, tensa's assist call hard to see behind him.
+- fz_soifong, fz_yin and minato have no main_mc and are not in the roster.
+- Masks over children drawn on their own (blended, split, animated) would
+  draw them unmasked; no character has one (the static audit checks it).
+
+## Looked at and found as authored
+
+- Blocky scaled effects: the art is bitmaps with smoothed fills, and the PC
+  build runs at quality LOW, where Flash does not smooth bitmaps; the port
+  draws the same. The setting page has the original's QUALITY again: at BEST
+  the fight smooths them, as the original's BEST.
+- kenshin's S+I "navy rectangle": the 4:3 game area inside the 16:9 capture
+  while the stage is darkened (the HUD spans the same width).
+- toushirou_bankai's white ice after its ultimate: FFDec's own frames flash
+  white and fade into the ice (a colour transform in the SWF).
+- deidara's long dark backdrop: his 超必杀 holds its cinematic from main
+  frame 762 to 866 (104 frames), and uryuu_ginreigojiaku's ultimate is as long.
+- Lee's green silhouettes, ulquiorra's dark smoke, aizen's black 黑棺 and
+  gaara_old's black dash silhouette (a solid black shape in the SWF) are the
+  SWFs' own art.
 
 ## Per character
 
@@ -153,7 +164,7 @@ blended children left inside flattened ones.
 | uryuu | 石田·雨龙 | uryuu @2 | 2/3 | 0 | 0 | 2→3 |  |  |
 | uryuu_ginreigojiaku | 石田·雨龙 银岭弧雀 | uryuu @3 | 2/3 | 0 | 0 | 3→3 |  | long ultimate is the move's length |
 | toushirou | 日番谷·东狮郎 | toushirou @2 | 2/3 | 0 | 0 | 2→2 |  |  |
-| toushirou_bankai | 日番谷·东狮郎 卍解 | toushirou @3 | 2/3 | 0 | 0 | 3→3 |  |  |
+| toushirou_bankai | 日番谷·东狮郎 卍解 | toushirou @3 | 2/3 | 0 | 0 | 3→3 |  | white ice after the ultimate is FFDec's own white flash |
 | byakuya | 朽木·白哉 | byakuya @2 | 2/3/4 | 0 | 0 | 2→3 |  | bankai switches sword / swordless forms |
 | byakuya_bankai | 朽木·白哉 卍解 | byakuya @3 | 2/3/4 | 0 | 0 | 3→3 |  |  |
 | ulquiorra | 乌尔奇奥拉·西法 | ulquiorra @2 | 2/3 | 5 | 0 | 2→2 |  | subtract effects drawn; dark smoke is the art; 5 blank frames as in the SWF |
@@ -181,7 +192,7 @@ blended children left inside flattened ones.
 | karin | 漩涡·香磷 | karin @2 | 2 | 0 | 0 | 2→2 |  | 上必杀 loop translated |
 | juggo | 天秤·重吾 | juggo @2 | 2 | 0 | 0 | 2→2 |  |  |
 | itachi | 宇智波·鼬 | itachi @2 | 2 | 0 | 0 | 2→2 |  | 天照 multiply drawn (was a black box) |
-| deidara | 迪达拉 | deidara @2 | 2 | 0 | 0 | 2→2 |  | clay birds no longer frozen |
+| deidara | 迪达拉 | deidara @2 | 2 | 0 | 0 | 2→2 |  | clay birds no longer frozen; long dark backdrop is the 104-frame cinematic |
 | kakashi | 旗木·卡卡西 | kakashi @2 | 2/3 | 0 | 0 | 2→3 |  |  |
 | kakashi_kamui | 旗木·卡卡西 神威 | kakashi @3 | 2/3 | 0 | 0 | 3→3 |  |  |
 | lee | 李·洛克 | lee @2 | 2/3 | 0 | 0 | 2→2 |  | base form placed correctly (filter padding); 表莲华 on the ground; green silhouettes are the SWF's colour transform |
@@ -200,13 +211,13 @@ blended children left inside flattened ones.
 | kimimaro | 君麻吕 | kimimaro @2 | 2 | 0 | 0 | 2→2 |  |  |
 | hinata | 日向·雏田 | hinata @2 | 2 | 0 | 0 | 2→2 |  | script error fixed (getDefinitionByName) |
 | suigetsu | 鬼灯·水月 | suigetsu @2 | 2 | 0 | 0 | 2→2 |  | script error fixed (getDefinitionByName) |
-| kenshin | 绯村·剑心 | kenshin @2 | 2/3 | 0 | 0 | 2→3 |  |  |
+| kenshin | 绯村·剑心 | kenshin @2 | 2/3 | 0 | 0 | 2→3 |  | S+I rectangle is the 4:3 game area while darkened |
 | kenshin_slash | 绯村·剑心 拔刀斋 | kenshin @3 | 2/3 | 0 | 0 | 3→3 |  |  |
 | deidara_old | [旧版] 迪达拉 | deidara_old @2 | 2 | 0 | 0 | 2→2 |  |  |
 | gaara_old | [旧版] 我爱罗 | gaara_old @2 | 2 | 0 | 0 | 2→2 |  | black dash silhouette is the SWF's own shape |
 | itachi_old | [旧版] 宇智波·鼬 | itachi_old @2 | 2 | 0 | 0 | 2→2 |  |  |
 | pain_old | [旧版] 佩恩 | pain_old @2 | 2 | 0 | 0 | 2→2 |  |  |
-| sasuke_susanoo_old | [旧版] 宇智波·佐助 须佐能乎 | sasuke_susanoo_old @2 | 2 | 0 | 0 | 2→2 |  |  |
+| sasuke_susanoo_old | [旧版] 宇智波·佐助 须佐能乎 | sasuke_susanoo_old @2 | 2 | 0 | 0 | 2→2 |  | ultimate ends its darkened screen (an undecompiled no-op) |
 | obito_old | [旧版] 宇智波·带土 | obito_old @2 | 2/3 | 0 | 0 | 2→2 |  |  |
 | naruto_hermit_old | [旧版] 漩涡·鸣人 黄金 | naruto_hermit_old @2 | 2 | 0 | 0 | 2→2 |  |  |
 | juggo_old | [旧版] 天秤·重吾 | juggo_old @2 | 2 | 0 | 0 | 2→2 |  |  |
@@ -245,7 +256,7 @@ blended children left inside flattened ones.
 | tsunate | 纲手 | fz_tsunate | 1 | 0 | 0 | 12 shots |  |  |
 | tsuchikage | 大野木 | fz_tsuchikage | 1 | 0 | 0 | 12 shots |  |  |
 | minato | 波风·水门 | fz_minato | 1 | 0 | 0 | 12 shots |  |  |
-| jiraiya | 自来也 | fz_jiraiya | 1 | 0 | 0 | 12 shots |  |  |
+| jiraiya | 自来也 | fz_jiraiya | 1 | 0 | 0 | 12 shots |  | attacks defined again (an undecompiled no-op): hits for 300 |
 | suigetsu | 鬼灯·水月 | fz_suigetsu | 1 | 0 | 0 | 12 shots |  |  |
 | sai | 佐井 | fz_sai | 1 | 0 | 0 | 12 shots |  |  |
 | madara | 宇智波·斑 | fz_madara | 1 | 0 | 0 | 12 shots |  |  |
