@@ -229,6 +229,15 @@ class Converter:
             for t in list(parent):
                 if t.get("type") == "TagStub":
                     parent.remove(t)
+        # Obfuscation junk the Flash player ignores but FFDec renders: a sprite placing
+        # itself (frames after it came out blank) and sprite definitions nested in a timeline.
+        for t in tags:
+            if t.get("type") == "DefineSpriteTag" and t.find("subTags") is not None:
+                sub = t.find("subTags")
+                for item in list(sub):
+                    if item.get("type") == "DefineSpriteTag" or (
+                            item.get("type") in swfxml.PLACE_TAGS and item.get("characterId") == t.get("spriteId")):
+                        sub.remove(item)
         for t in tags:
             if t.get("type") == "DefineSpriteTag" and t.get("spriteId") in sprite_ids:
                 sub = t.find("subTags")
