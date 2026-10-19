@@ -594,6 +594,21 @@ BVNGame = {
 				started = ses and ses.started or false, frame = ses and ses.frame, desync = ses and ses.desync,
 				hash = BVNNet.Hash(self), seed = BVNRuntime.seed, message = self.stage and self.stage.message,
 				lua_kb = math.floor(collectgarbage("count"))}
+		elseif name == "options_save" then
+			-- Options for tests: {set = {field = value}, save}; returns the values and the save's state.
+			for k, v in pairs(args.set or {}) do
+				if BVNSettings.Valid(k, v) then BVNSettings[k] = v end
+			end
+			BVNSettings.Apply()
+			local saved
+			if args.save then saved = BVNSettings.Save() end
+			return {values = BVNSettings.Snapshot(), saved = saved, newer = BVNSaveSlot.IsNewer("config")}
+		elseif name == "keys_bind" then
+			-- Key settings for tests: {side, row, key, save}.
+			if args.key then BVNKeys.Bind(args.side or 1, args.row or 1, args.key) end
+			local saved
+			if args.save then saved = BVNKeys.Save() end
+			return {saved = saved, attack = Input.GetBindings("p1_attack", "keys")}
 		elseif name:sub(1, 6) == "musou_" then
 			return self:MusouCommand(name, args)
 		end

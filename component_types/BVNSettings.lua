@@ -40,9 +40,15 @@ BVNSettings = {
 		return false
 	end,
 
+	-- A saved value this build does not offer (a newer build's) is left out of the
+	-- snapshot while the option still shows its default, so the save keeps it.
+	foreign = {},
+
 	Snapshot = function()
 		local t = {}
-		for _, k in ipairs(BVNSettings.FIELDS) do t[k] = BVNSettings[k] end
+		for _, k in ipairs(BVNSettings.FIELDS) do
+			if BVNSettings.foreign[k] == nil or BVNSettings[k] ~= BVNSettings.foreign[k] then t[k] = BVNSettings[k] end
+		end
 		return t
 	end,
 
@@ -53,23 +59,22 @@ BVNSettings = {
 		BVNSettings.Apply()
 	end,
 
-	-- Reads the saved options; unknown or invalid values keep their defaults.
+	-- Reads the saved options (BVNSaveSlot); unknown or invalid values keep their defaults.
 	Load = function()
 		BVNSettings.loaded = true
-		local r = Save and Save.Read("config", {fallback = true})
-		if r and r.ok and r.schema_version == SCHEMA and type(r.data) == "table" then
-			BVNSettings.Restore(r.data)
+		BVNSettings.foreign = {}
+		local data = BVNSaveSlot.Read("config", SCHEMA)
+		if data then
+			for _, k in ipairs(BVNSettings.FIELDS) do
+				if data[k] ~= nil and not BVNSettings.Valid(k, data[k]) then BVNSettings.foreign[k] = BVNSettings[k] end
+			end
+			BVNSettings.Restore(data)
 		else
 			BVNSettings.Apply()
 		end
 	end,
 
-	Save = function()
-		if not Save then return false end
-		local r = Save.Write("config", SCHEMA, BVNSettings.Snapshot())
-		if not r.ok then Debug.Log("BVN: cannot save options: " .. tostring(r.code) .. " " .. tostring(r.error)) end
-		return r.ok
-	end,
+	Save = function() return BVNSaveSlot.Write("config", SCHEMA, BVNSettings.Snapshot()) end,
 
 	-- The fight's quality (GameConfig.QUALITY_GAME): at BEST scaled bitmaps are smoothed;
 	-- menus keep QUALITY_UI (LOW).

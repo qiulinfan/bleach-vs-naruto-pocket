@@ -273,24 +273,15 @@ BVNMusouData = {
 	-- GameData.initData + loadSaveData: defaults, then the save (slot "musou") over them.
 	Load = function()
 		init()
-		local r = Save and Save.Read("musou", {fallback = true})
-		if r and r.ok and r.schema_version == SCHEMA and type(r.data) == "table" then
-			read(r.data)
-			-- A damaged save was replaced by its previous version: keep that one as the save.
-			if r.recovered then
-				Debug.Log("BVN: the musou save was damaged; its previous version was loaded")
-				BVNMusouData.Save()
-			end
-		end
+		local data = BVNSaveSlot.Read("musou", SCHEMA)
+		if data then read(data) end
 		return P
 	end,
 
 	-- GameData.saveData.
 	Save = function()
-		if not P or not Save then return false end
-		local r = Save.Write("musou", SCHEMA, saveObj())
-		if not r.ok then Debug.Log("BVN: cannot save musou data: " .. tostring(r.code) .. " " .. tostring(r.error)) end
-		return r.ok
+		if not P then return false end
+		return BVNSaveSlot.Write("musou", SCHEMA, saveObj())
 	end,
 
 	-- Forgets the loaded data (tests): the next access reads the save again.

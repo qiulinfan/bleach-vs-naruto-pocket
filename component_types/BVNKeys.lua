@@ -51,16 +51,11 @@ BVNKeys = {
 	-- At start, after the options: the saved bindings over the defaults.
 	Load = function()
 		defaults = defaults or current()
-		local r = Save and Save.Read("keys", {fallback = true})
-		if r and r.ok and r.schema_version == SCHEMA and type(r.data) == "table" then apply(r.data) end
+		local data = BVNSaveSlot.Read("keys", SCHEMA)
+		if data then apply(data) end
 	end,
 
-	Save = function()
-		if not Save then return false end
-		local r = Save.Write("keys", SCHEMA, current())
-		if not r.ok then Debug.Log("BVN: cannot save keys: " .. tostring(r.code) .. " " .. tostring(r.error)) end
-		return r.ok
-	end,
+	Save = function() return BVNSaveSlot.Write("keys", SCHEMA, current()) end,
 
 	Reset = function() if defaults then apply(defaults) end end,
 
