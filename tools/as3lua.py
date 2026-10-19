@@ -757,6 +757,16 @@ def split_members(src):
     return cls, fields, methods, frame_map
 
 
+# An obfuscator's no-op FFDec leaves as stack code: `§§push(x); switch(n) {} §§pop()`
+# (an empty switch between the push and the pop) is just `x`.
+PUSH_POP = re.compile(r"§§push\(((?:[^()]|\([^()]*\))*)\);\s*switch\(\s*-?\d+\s*\)\s*\{\s*\}\s*§§pop\(\)", re.S)
+
+
+def fold_push_pop(body):
+    # A plain name stays bare: a Lua statement must not start with a parenthesis.
+    return PUSH_POP.sub(lambda m: m.group(1) if re.fullmatch(r"[\w$.]+", m.group(1).strip()) else "(" + m.group(1) + ")", body)
+
+
 def translate_class(src):
     """Lua source for one class: `return {fields = {...}, methods = {...}, frames = {[n] = "method"}}`.
     Returns (lua_source, failures)."""
@@ -794,6 +804,7 @@ def translate_class(src):
             name = "__init"
         em.locals = set(params)
         try:
+            body = fold_push_pop(body)
             if "§" in body:
                 raise Unsupported("undecompiled bytecode")
             stmts = Parser(tokenize(body)).block()
