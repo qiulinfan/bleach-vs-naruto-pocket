@@ -68,14 +68,34 @@ function R.PAIRS(t)
 end
 
 -- Objects scripts construct with `new` (Point, ColorTransform, ...): plain tables.
-function R.NEW(cls, a, b)
+function R.NEW(cls, a, b, c, d)
 	if cls == "Point" or cls == "flash.geom.Point" then return {x = a or 0, y = b or 0} end
+	-- A solid BitmapData(width, height, transparent, colour) and its Bitmap (ulquiorra's dark stage).
+	if cls == "BitmapData" then return {width = a or 0, height = b or 0, color = d or 0} end
+	if cls == "Bitmap" then return {bitmapData = a} end
 	-- new (effect.constructor)(sprite): a FighterEffectCtrl bound to that sprite.
 	if cls == "?" and type(a) == "table" and rawget(a, "_sp") then
 		return setmetatable({f = rawget(a, "_sp")}, {__index = BVNCtrl.Eff})
 	end
 	if cls == "Array" then return R.ARRAY({}) end
 	return {}
+end
+
+-- getDefinitionByName: the classes scripts reach that way. MainGame.I.getFPS() is the battle's
+-- logic rate (GameConfig.FPS_GAME), which delayCall counts in.
+local MAIN_GAME = {I = {getFPS = function() return 60 end}}
+function R.DEF(name)
+	if name == "net.play5d.game.bvn::MainGame" or name == "net.play5d.game.bvn.MainGame" then return MAIN_GAME end
+	R.UNSUPPORTED("getDefinitionByName " .. tostring(name))
+	return {}
+end
+
+-- new <Sound class>(): a converted sound whose play() plays it.
+function R.SOUND(path)
+	return {play = function()
+		if path then BVNSound.Play(path, 110) end
+		return {stop = function() end}
+	end}
 end
 
 local warned = {}

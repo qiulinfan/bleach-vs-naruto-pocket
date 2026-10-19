@@ -6,15 +6,25 @@ x' = a*x + c*y + tx and y' = b*x + d*y + ty, as in Flash.
 import xml.etree.ElementTree as ET
 
 IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+IDENTITY_CM = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
 SHAPE_TAGS = {"DefineShapeTag", "DefineShape2Tag", "DefineShape3Tag", "DefineShape4Tag"}
 PLACE_TAGS = {"PlaceObject2Tag", "PlaceObject3Tag"}
 # Blend modes that light up what is under them (screen, lighten, add): the effects drawn on a black
 # background. The engine draws them as an additive blend.
 ADDITIVE_BLENDS = {"4", "5", "8"}
+# Blend modes FFDec cannot flatten onto a transparent canvas (a black box) that the engine can
+# approximate: "add" (above), "sub" (subtract: drawn as a multiply by the inverted image) and "mul"
+# (multiply, darken: a multiply).
+BLEND_KINDS = {"4": "add", "5": "add", "8": "add", "9": "sub", "3": "mul", "6": "mul"}
 
 
 def additive(obj):
     return obj.get("blend") in ADDITIVE_BLENDS
+
+
+def blend_kind(obj):
+    """"add", "sub", "mul" or None for a placement."""
+    return BLEND_KINDS.get(obj.get("blend"))
 
 
 def parse_matrix(el):
@@ -130,10 +140,29 @@ class Swf:
                     obj["name"] = t.get("name")
                 if t.get("placeFlagHasBlendMode") == "true":
                     obj["blend"] = t.get("blendMode") or "1"   # SWF BlendMode: 4 screen, 5 lighten, 8 add, ...
+                if has_char:
+                    # The instance was placed with a blend the converter renders apart: it stays a
+                    # child of its own while it lives, also after a later frame changes its blend.
+                    obj["lit"] = blend_kind(obj)
+                if t.get("placeFlagHasClipDepth") == "true":
+                    obj["clip"] = int(t.get("clipDepth"))   # a mask over the depths up to it
                 if t.get("placeFlagHasColorTransform") == "true":
                     cx = t.find("colorTransform")
-                    if cx is not None and cx.get("hasMultTerms") == "true":
-                        obj["alpha"] = int(cx.get("alphaMultTerm", 256)) / 256
+                    mult = cx is not None and cx.get("hasMultTerms") == "true"
+                    add = cx is not None and cx.get("hasAddTerms") == "true"
+                    obj["alpha"] = int(cx.get("alphaMultTerm", 256)) / 256 if mult else 1.0
+                    # The colour part: multipliers (0..1) and offsets (-255..255) of red, green, blue.
+                    ct = tuple([int(cx.get(k + "MultTerm", 256)) / 256 if mult else 1.0 for k in ("red", "green", "blue")] +
+                               [int(cx.get(k + "AddTerm", 0)) if add else 0 for k in ("red", "green", "blue")])
+                    obj["ct"] = None if ct == (1.0, 1.0, 1.0, 0, 0, 0) else ct
+                if t.get("placeFlagHasFilterList") == "true":
+                    # A colour matrix filter (4 x 5, offsets in 0..255); identity ones are left out.
+                    obj["cm"] = None
+                    for f in t.iter("item"):
+                        if f.get("type") == "COLORMATRIXFILTER" and f.find("matrix") is not None:
+                            m = tuple(round(float(v.text), 4) for v in f.find("matrix"))
+                            if len(m) == 20 and m != IDENTITY_CM:
+                                obj["cm"] = m
                 dl[depth] = obj
             elif ty == "RemoveObject2Tag" or ty == "RemoveObjectTag":
                 dl.pop(int(t.get("depth")), None)

@@ -10,10 +10,18 @@ the submodules under `external/`; everything converted from them is ignored
   export (deobfuscated), then renders the action sprites with FFDec. Animated
   children (the idle breathing lives in one), bullets and attackers (children
   named in `fire` / `addAttacker`) are removed from the form timelines and
-  rendered as their own sprites. Frames are cropped and de-duplicated; per
+  rendered as their own sprites. So are children placed with a blend FFDec
+  would flatten onto the transparent canvas as a black box: screen / lighten /
+  add (drawn additively), subtract (drawn as a multiply by the inverted image)
+  and multiply / darken (a multiply); for the multiplied ones it writes
+  premultiplied `<image>_sub.png` / `_mul.png` next to the frames. Frames are
+  cropped and de-duplicated; per
   frame it records the image offset, `bdmn` body, `*atm` hit boxes, named child
-  positions (`@name`), animated children with their placement serial and
-  matrix, and timeline sounds. Scripts are translated by `tools/as3lua.py`.
+  positions (`@name`, with the placement's matrix, alpha and colour transform
+  when not plain: bullets and follow effects keep them when detached,
+  attackers too but with the x scale reset to 1 as FighterAttacker's `direct`
+  does), animated and blended children with their placement
+  serial, matrix, blend and alpha, and timeline sounds. Scripts are translated by `tools/as3lua.py`.
   Output: `data/bvn/BVNF_<id>.lua` (assists: `BVNF_fz_<id>`), loaded on demand by
   `BVNRuntime.Character` through `Application.GetProjectDirectory()`; the
   whole roster would take ~100 MB of Lua heap if loaded at startup, beyond the
@@ -52,6 +60,15 @@ the submodules under `external/`; everything converted from them is ignored
   pre-rendered there: the bright map seen through each area's soft circle, and
   the faces cut by their mask layers (`faces[bar|mini|boss|enemy|big][id]`,
   drawn at their content slot). The wave ring is 73 pre-drawn images.
+- `tools/audit_bvn.py` checks the converted roster against the SWFs (blank
+  frames where the timeline shows something, missing images, blended children
+  left inside flattened ones, select entries' start forms and the forms the
+  scripts jump to, mostly black frames, frame scripts never registered on a
+  frame); `tools/battle_audit.py` drives real
+  battles headless for every fighter, assist and mook (moves, ultimates,
+  transformation, assist), writes a contact sheet each and collects script and
+  engine errors (`build/bvn-audit/` of the engine). The findings so far are in
+  `docs/character-audit.md`.
 - `tools/swfxml.py` reads FFDec XML timelines (Flash ignores a non-move
   placement on an occupied depth; obfuscated SWFs rely on that); `tools/as3lua.py` turns AS3
   classes into Lua tables (`fields`, `methods`, `frames`). Helpers it calls
@@ -63,7 +80,14 @@ the submodules under `external/`; everything converted from them is ignored
   file, and files load in an unspecified order, so never capture another
   module at file scope (use lazy lookups such as the `D` proxy for BVNDraw).
 - `BVNClip`: a playing sprite (Flash frame-entry scripts, children keep their
-  playhead while their placement serial persists, `Draw` composes matrices).
+  playhead while their placement serial persists, `Draw` composes matrices,
+  a child's blend and alpha apply to its subtree; an additive subtree stays
+  additive).
+- Forms: main_mc's frames place the forms (`forms[i].form_frame`, from frame
+  2). FighterMain starts on frame `start_frame + 1`; `doWanKai` moves to the
+  next frame or a given one, and form scripts may move main_mc themselves
+  (`parent.gotoAndStop(4)`: sasuke_susanoo's Susanoo, byakuya's bankai without
+  the sword); `Fighter:SetMainFrame` builds the form of a frame.
 - `BVNFighter`: FighterMain / FighterMC / FighterMcCtrler and the floor, air,
   hurt and defense handlers. `BVNCtrl` holds the `$mc_ctrler`,
   `$effect_ctrler` and `$fighter_ctrler` objects the scripts call.
@@ -136,7 +160,11 @@ the submodules under `external/`; everything converted from them is ignored
   GoMenu during a session ends it (`BVNNet.Stop`, both machines return to the
   NET PLAY screen); a lost peer does the same with a message. Every 60 ticks
   `BVNNet.Hash` (seed, round, time, fighters' x / y / hp / qi / energy / state
-  / dir, sprite count) goes to `Net.Checksum`; a desync shows a red warning.
+  / dir, sprite count) goes to `Net.Checksum` (by the session's tick). On a
+  desync the engine repairs the guest from the host's state (about 100 KB,
+  a second at 150 ms each way) and a red line shows meanwhile; `BVNSettings`,
+  `BVNNet`, `BVNKeys` and `BVNMusouData` are `Net.Local` (each machine's own),
+  so mark any new per-machine module there too (`BVNGame.Init`).
   Room codes, addresses and codes are typed with raw keys before the session
   starts.
 - Rollback: the snapshots walk everything reachable from the globals, so all
@@ -210,6 +238,9 @@ directly with the `goto` command for rendered checks. `tools/net_test.py`
 plays a NET PLAY session between two headless games (room server, `--relay`,
 `--discover`, `--code`, `--lan --lag MS --loss F` through a lossy proxy,
 `--lockstep`) and checks both machines stay in the same state;
+`tools/net_pace_test.py` runs both on real-time clocks over a slow link and
+checks the sounds each heard; `tools/net_desync_test.py` changes one
+machine's battle inside a tick (`net_perturb`) and checks the repair;
 `tools/rollback_test.py` runs the engine's rollback sync test over CPU
 battles, a team battle and a VS PEOPLE match from the select. Set `POCKET_SAVE_ROOT`
 to a scratch directory for any run (options are saved). Run output stays

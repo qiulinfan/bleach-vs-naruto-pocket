@@ -273,8 +273,8 @@ function M:doWanKai(frame)
 	local f = self.f
 	f.doingWankai = true
 	f.mcReady = false
-	local n = (frame and frame > 0) and (frame - 1) or (f.formIndex + 1)
-	f:SetForm(n)
+	-- FighterCtrler.doWanKai: main_mc.nextFrame(), or gotoAndStop(frame).
+	f:SetMainFrame((frame and frame > 0) and frame or (f.mainFrame + 1))
 end
 function M:setDirectToTarget() self.f:FaceTarget() end
 function M:setCross(v) self.f.isCross = BVNRuntime.T(v) end

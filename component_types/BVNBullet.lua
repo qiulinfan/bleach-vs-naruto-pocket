@@ -47,10 +47,47 @@ end
 -- A child's world position and the clip to detach: the owner's current frame
 -- must place a child named `name` (the converter keeps its spawn point).
 local function spawnOf(owner, name)
-	local px, py = owner:ChildPos(name)
+	local px, py, p = owner:ChildPos(name)
 	local ids = owner.char.attackers[name]
 	if not px or not ids then return nil end
-	return px, py, ids[1]
+	return px, py, ids[1], p
+end
+
+-- The child's placement in its parent's frame, which the detached sprite keeps: a matrix
+-- (x scale and rotation mirrored with the owner's facing, as the world draw mirrors), alpha
+-- and colour transform. FighterAttacker's direct setter resets the x scale to 1 (resetX).
+local function placement(p, resetX)
+	if not p or not p[3] then return nil end
+	local a, b, c, d = p[3], p[4], p[5], p[6]
+	if resetX then
+		local sx = math.sqrt(a * a + b * b)
+		if sx > 0 then a, b = a / sx, b / sx end
+	end
+	return {m = {a, b, c, d, 0, 0}, alpha = p[7] and p[7] < 1 and p[7] or nil, ct = p[8]}
+end
+
+-- Draw options and matrix for a sprite with a placement.
+local function placedDraw(sp, opt)
+	local pl = sp.place
+	if not pl then return opt, nil end
+	if pl.alpha then opt.alpha = math.floor((opt.alpha or 255) * pl.alpha) end
+	local ct = pl.ct
+	if ct then
+		opt.tint = {255 * ct[1], 255 * ct[2], 255 * ct[3]}
+		local c = opt.color or {0, 0, 0}
+		opt.color = {c[1] + ct[4], c[2] + ct[5], c[3] + ct[6]}
+	end
+	return opt, pl.m
+end
+
+-- The axis-aligned bounds of rect {x, y, w, h} under matrix m.
+local function boundsUnder(m, r)
+	local x0, y0, x1, y1 = math.huge, math.huge, -math.huge, -math.huge
+	for _, q in ipairs({{r[1], r[2]}, {r[1] + r[3], r[2]}, {r[1], r[2] + r[4]}, {r[1] + r[3], r[2] + r[4]}}) do
+		local x, y = m[1] * q[1] + m[3] * q[2], m[2] * q[1] + m[4] * q[2]
+		x0, y0, x1, y1 = math.min(x0, x), math.min(y0, y), math.max(x1, x), math.max(y1, y)
+	end
+	return {x0, y0, x1 - x0, y1 - y0}
 end
 
 BVNBullet = {}
@@ -61,13 +98,19 @@ local Bullet = {}
 Bullet.__index = Bullet
 
 function BVNBullet.Fire(battle, owner, name, params, hitModel)
-	local px, py, sid = spawnOf(owner, name)
+	local px, py, sid, p = spawnOf(owner, name)
 	if not px then return nil end
 	local b = setmetatable({kind = "bullet", battle = battle, owner = owner, team = owner.team, name = name}, Bullet)
 	b.char = owner.char
 	b.clip = BVNClip.New(owner.char, sid, BVNClip.LayerFor(owner), b)
 	if not b.clip then return nil end
 	BVNClip.Enter(b.clip, 1)
+	-- Bullet keeps the child's scale and rotation (only mirrored with the facing).
+	b.place = placement(p, false)
+	-- Its hit area is measured in the fighter's space: the placement under the form's scale.
+	local m, fo = b.place and b.place.m or {1, 0, 0, 1}, owner.formOffset
+	if fo then m = {m[1] * fo[3], m[2] * fo[4], m[3] * fo[3], m[4] * fo[4]} end
+	if m[1] ~= 1 or m[2] ~= 0 or m[3] ~= 0 or m[4] ~= 1 then b.areaM = m end
 	local model = hitModel or owner.hitModel
 	local base = model[name] or model[(name:gsub("atm", ""))]
 	if base then
@@ -92,21 +135,25 @@ function BVNBullet.Fire(battle, owner, name, params, hitModel)
 end
 
 -- Bullet.setHitVO: the hit area is fixed at spawn, from the "main" child or the whole
--- first frame.
-local function spawnArea(clip)
+-- first frame, as placed (getBounds in the owner's space).
+local function spawnArea(clip, m)
 	local f = clip.data.frames[1]
-	if f and f.main then return f.main end
-	if f and f.img then
+	local r
+	if f and f.main then
+		r = f.main
+	elseif f and f.img then
 		local sz = Image.GetSize(f.img)
-		return {f.x, f.y, sz.x, sz.y}
+		r = {f.x, f.y, sz.x, sz.y}
+	else
+		local bd = clip.data.bounds
+		if bd then r = {bd[1], bd[2], bd[3] - bd[1], bd[4] - bd[2]} end
 	end
-	local bd = clip.data.bounds
-	if bd then return {bd[1], bd[2], bd[3] - bd[1], bd[4] - bd[2]} end
-	return nil
+	if r and m then r = boundsUnder(m, r) end
+	return r
 end
 
 function Bullet:Area()
-	self.area = self.area or spawnArea(self.clip)
+	self.area = self.area or spawnArea(self.clip, self.areaM)
 	return self.area and worldRect(self, self.area)
 end
 
@@ -203,7 +250,8 @@ function Bullet:BeHit(h, _, src)
 end
 
 function Bullet:Draw(order)
-	BVNClip.Draw(self.clip, self.x, self.y, self.dir, {order = order})
+	local opt, m = placedDraw(self, {order = order})
+	BVNClip.Draw(self.clip, self.x, self.y, self.dir, opt, m)
 end
 
 -- Follow effect (FollowEffectView) ----------------------------------------------------
@@ -215,13 +263,14 @@ local Follow = {}
 Follow.__index = Follow
 
 function BVNBullet.Follow(battle, owner, name, under)
-	local px, py, sid = spawnOf(owner, name)
+	local px, py, sid, p = spawnOf(owner, name)
 	if not px then return nil end
 	local v = setmetatable({kind = "follow", battle = battle, owner = owner, team = owner.team, name = name, under = under}, Follow)
 	v.char = owner.char
 	v.clip = BVNClip.New(owner.char, sid, BVNClip.LayerFor(owner), v)
 	if not v.clip then return nil end
 	BVNClip.Enter(v.clip, 1)
+	v.place = placement(p, false)
 	v.cx, v.cy = (px - owner.x) * owner.dir, py - owner.y
 	v.dir = owner.dir
 	v.x, v.y = px, py
@@ -257,7 +306,8 @@ function Follow:RenderAnimate()
 end
 
 function Follow:Draw(order)
-	BVNClip.Draw(self.clip, self.x, self.y, self.dir, {order = order, color = self.owner.color})
+	local opt, m = placedDraw(self, {order = order, color = self.owner.color})
+	BVNClip.Draw(self.clip, self.x, self.y, self.dir, opt, m)
 end
 
 -- Attacker -------------------------------------------------------------------------
@@ -274,7 +324,7 @@ end
 local function rangeOf(r) return r and (rawget(r, "_a") or r) end
 
 function BVNBullet.Attacker(battle, owner, name, params, hitModel)
-	local px, py, sid = spawnOf(owner, name)
+	local px, py, sid, p = spawnOf(owner, name)
 	if not px then return nil end
 	local a = setmetatable({kind = "attacker", battle = battle, owner = owner, team = owner.team, name = name}, Attacker)
 	a.char = owner.char
@@ -285,6 +335,7 @@ function BVNBullet.Attacker(battle, owner, name, params, hitModel)
 	a.clip.inst.S_attacker_ctrler = a.ctrl
 	if a.clip.methods and a.clip.methods.setAttackerCtrler then BVNClip.Call(a.clip, "setAttackerCtrler", a.ctrl) end
 	a.dir = owner.dir
+	a.place = placement(p, true)
 	a.vx, a.vy, a.dx, a.dy, a.g = 0, 0, 0, 0, 0
 	a.applyG = params.applyG ~= false
 	a.px, a.py = axisParam(params.x), axisParam(params.y)
@@ -335,7 +386,7 @@ function Attacker:Target() return self.owner:Target() end
 function Attacker:ChildPos(name)
 	local f = self.clip and self.clip.data.frames[self.clip.frame]
 	local p = f and f.hits and f.hits["@" .. name]
-	if p then return self.x + p[1] * self.dir, self.y + p[2] end
+	if p then return self.x + p[1] * self.dir, self.y + p[2], p end
 	return nil
 end
 function Attacker:AddQi(v) local o = self.owner if o.AddQi then o:AddQi(v) end end
@@ -377,7 +428,7 @@ function Attacker:Render()
 			local l = self.touchFloor
 			self.touchFloor = nil
 			BVNClip.Goto(self.clip, l)
-			self.clip.playing = true
+			self.held = false
 		end
 	end
 	if not self.crossMap then self.x = clamp(self.x, m.left, m.right) end
@@ -390,17 +441,20 @@ function Attacker:Render()
 			local l = self.hitTarget[2]
 			self.hitTarget = nil
 			BVNClip.Goto(self.clip, l)
-			self.clip.playing = true
+			self.held = false
 		end
 	end
 end
 
+-- FighterAttacker.renderAnimate: the kernel moves the clip on itself every animation tick (the
+-- clip's own stop() only halts Flash's playback); the attacker controller's stop / gotoAndStop
+-- hold it (held).
 function Attacker:RenderAnimate()
-	if self.dead then return end
+	if self.dead or self.held then return end
 	local c = self.clip
-	if c.playing then BVNClip.Next(c) end
+	BVNClip.Next(c)
 	BVNClip.AdvanceKids(c)
-	if c.frame >= math.max(1, #c.data.frames - 1) and c.playing ~= false then self.dead = true end
+	if c.frame >= math.max(1, #c.data.frames - 1) then self.dead = true end
 end
 
 -- FighterAttacker.hit: the owning fighter gains qi, more for an assist's attacker.
@@ -411,16 +465,17 @@ function Attacker:OnHit(target, h)
 end
 
 function Attacker:Draw(order)
-	BVNClip.Draw(self.clip, self.x, self.y, self.dir, {order = order})
+	local opt, m = placedDraw(self, {order = order})
+	BVNClip.Draw(self.clip, self.x, self.y, self.dir, opt, m)
 end
 
 local AC = {}
 BVNBullet.AttackerCtrl = AC
 function AC:move(x, y) self.a.vx, self.a.vy, self.a.dx, self.a.dy = (x or 0) * self.a.dir, y or 0, 0, 0 end
 function AC:damping(x, y) self.a.dx, self.a.dy = x or 0, y or 0 end
-function AC:stop() self.a.clip.playing = false end
-function AC:gotoAndPlay(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = true end
-function AC:gotoAndStop(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = false end
+function AC:stop() self.a.held = true end
+function AC:gotoAndPlay(l) BVNClip.Goto(self.a.clip, l); self.a.held = false end
+function AC:gotoAndStop(l) BVNClip.Goto(self.a.clip, l); self.a.held = true end
 function AC:setTouchFloor(l) self.a.touchFloor = l end
 function AC:setHitTarget(checker, l) self.a.hitTarget = {checker, l} end
 function AC:justHit(id, d) return fighterOf(self.a).fCtrl:justHit(id, d) end
@@ -469,6 +524,7 @@ function Assist:Go()
 	BVNClip.Enter(self.clip, 1)
 	BVNClip.Goto(self.clip, 2)
 	self.clip.playing = true
+	self.held = false
 	self.battle.fx:Effect((self.char.comic_type or 0) == 1 and "fz_naruto" or "fz_bleach", self.x, self.y, self.dir)
 end
 
@@ -485,10 +541,11 @@ function Assist:CurrentHits()
 	return out
 end
 
+-- Assister.renderAnimate: as attackers, held only by its controller.
 function Assist:RenderAnimate()
-	if self.dead then return end
+	if self.dead or self.held then return end
 	local c = self.clip
-	if c.playing then BVNClip.Next(c) end
+	BVNClip.Next(c)
 	BVNClip.AdvanceKids(c)
 	if c.frame >= #c.data.frames - 1 then self:Finish() end
 end
@@ -524,7 +581,7 @@ function SC:moveToTarget(x, y, setDirect)
 end
 function SC:justHit(id, frame, inclDef)
 	local ok = fighterOf(self.a).fCtrl:justHit(id, inclDef)
-	if ok and frame then BVNClip.Goto(self.a.clip, frame); self.a.clip.playing = true end
+	if ok and frame then BVNClip.Goto(self.a.clip, frame); self.a.held = false end
 	return ok
 end
 function SC:fire(name, params) self.a.battle:FireBullet(self.a, name, params or {}, self.a.hitModel) end

@@ -40,6 +40,9 @@ BVNGame = {
 		BVNGame.current = self
 		-- Converted data never changes: netplay rollback snapshots leave it out.
 		Net.Static(BVNConfig, BVNFxData, BVNMaps, BVNMusouConfig, BVNUIData)
+		-- This machine's own: options, the session's side and link, key settings, musou progress.
+		-- A resync from the NET PLAY host leaves them as they are.
+		if Net.Local then Net.Local(BVNSettings, BVNNet, BVNKeys, BVNMusouData) end
 		BVNRuntime.seed = 20261017
 		BVNSettings.Load()
 		BVNKeys.Load()
@@ -275,6 +278,7 @@ BVNGame = {
 		Camera.SetPosition(6.4, 3.6)
 		BVNTrans.Update()
 		local b = self.battle
+		BVNSettings.Smoothing(b ~= nil)
 		BVNScreen.textFloor = -math.huge
 		if b then
 			self:UpdateBattle(b)
@@ -398,6 +402,49 @@ BVNGame = {
 			local f = self.battle.fighters[args.side or 1]
 			f.qi = args.qi or 300
 			return {qi = f.qi}
+		elseif name == "audit_fill" and self.battle then
+			-- tools/battle_audit.py: full qi, energy, assist and HP on both sides, so every move can run.
+			local m = self.battle.map
+			for i, f in ipairs(self.battle.fighters) do
+				f.qi, f.energy, f.fzqi, f.hp = f.qiMax or 300, f.energyMax or 100, f.fzqiMax or 100, f.hpMax
+				f.overload = false
+				-- reset: back to the middle of the map, facing each other, so the camera stays close.
+				if args.reset and m and not f.inAir then
+					f.x, f.vx = (m.left + m.right) / 2 + (i == 1 and -90 or 90), 0
+					f.dir = i == 1 and 1 or -1
+				end
+			end
+			return true
+		elseif name == "audit_sprites" and self.battle then
+			-- The battle's other sprites (attackers, bullets, assists): what plays and where.
+			local out = {}
+			for _, sp in ipairs(self.battle.sprites) do
+				if sp.kind ~= "fighter" then
+					local c = sp.clip
+					out[#out + 1] = {kind = sp.kind, name = sp.name, sprite = c and c.sid, frame = c and c.frame,
+						frames = c and #c.data.frames, label = c and BVNClip.Label(c), dead = sp.dead or false,
+						x = math.floor(sp.x or 0), y = math.floor(sp.y or 0), playing = c and c.playing}
+				end
+			end
+			for f, sh in pairs(self.battle.fx.shadows or {}) do
+				out[#out + 1] = {kind = "shadow", name = f.char and f.char.id, frames = #sh.snaps}
+			end
+			for _, v in ipairs(self.battle.fx.effects or {}) do
+				if v.active then out[#out + 1] = {kind = "effect", name = v.e.cls, frame = v.cur, x = math.floor(v.x or 0), y = math.floor(v.y or 0)} end
+			end
+			return out
+		elseif name == "audit_state" and self.battle then
+			-- The fighter's converted character, form (main_mc frame) and the sprite it plays.
+			local f = self.battle.fighters[args.side or 1]
+			return {char = f.char.id, hp = f.hp, form = f.mainFrame, form_index = f.formIndex, sprite = f.clip and f.clip.sid,
+				label = f.clip and BVNClip.Label(f.clip), state = f.state, sprites = #self.battle.sprites,
+				x = f.x, y = f.y, inAir = f.inAir, bottom = self.battle.map.bottom, frame = f.clip and f.clip.frame,
+				kids = (function()
+					local k = {}
+					for serial, kid in pairs(f.clip and f.clip.kids or {}) do k[#k + 1] = kid.sid .. "@" .. kid.frame end
+					table.sort(k)
+					return k
+				end)()}
 		elseif name == "set_hp" and self.battle then
 			local f = self.battle.fighters[args.side or 1]
 			f.hp = args.hp or f.hpMax
@@ -489,6 +536,54 @@ BVNGame = {
 			local t3 = os.clock()
 			return {objects = Net.Snapshot(0, "objects"), save_ms = (t1 - t0) * 1000 / n, load_ms = (t2 - t1) * 1000,
 				hash_ms = (t3 - t2) * 1000, hash = h}
+		elseif name == "net_export" then
+			-- Desync recovery's portable state, round-tripped here: export, change the battle
+			-- ({perturb}), import, and the game's hash should be the exported one again.
+			Net.Track(_G)
+			local h0 = BVNNet.Hash(self)
+			local t0 = os.clock()
+			local data = Net.Snapshot(0, "export")
+			local t1 = os.clock()
+			if args.perturb then self:NetPerturb(args.perturb) end
+			local h1 = BVNNet.Hash(self)
+			local t2 = os.clock()
+			local stats, err = Net.Snapshot(0, "import", data)
+			local t3 = os.clock()
+			if args.file and io and io.open then local fh = io.open(args.file, "wb"); if fh then fh:write(data); fh:close() end end
+			return {bytes = #data, export_ms = (t1 - t0) * 1000, import_ms = (t3 - t2) * 1000, stats = stats, error = err,
+				hash = h0, perturbed = h1, after = BVNNet.Hash(self)}
+		elseif name == "net_dump" then
+			-- Every scalar reachable from _G by its path (desync tests: what differs between the
+			-- machines), written to {file}; static data is left out ({skip} keys).
+			local seen, lines, skip = {}, {}, {sprites = true, frames = true, data = true}
+			for _, k in ipairs(args.skip or {}) do skip[k] = true end
+			local function walk(t, path, depth)
+				if seen[t] or depth > 14 then return end
+				seen[t] = true
+				for k, v in pairs(t) do
+					local kt = type(k)
+					if kt == "string" or kt == "number" then
+						local p = path .. "/" .. tostring(k)
+						local vt = type(v)
+						if vt == "table" then
+							if not skip[k] then walk(v, p, depth + 1) end
+						elseif vt == "number" or vt == "string" or vt == "boolean" then
+							lines[#lines + 1] = p .. "=" .. tostring(v)
+						end
+					end
+				end
+			end
+			walk(_G, "", 0)
+			table.sort(lines)
+			local fh = io.open(args.file, "wb")
+			fh:write(table.concat(lines, "\n"))
+			fh:close()
+			return {lines = #lines}
+		elseif name == "net_perturb" then
+			-- Desync recovery tests: this machine's battle changes inside a coming session tick
+			-- ({after, side, hp, x}), and again whenever that tick is simulated again.
+			BVNNet.Perturb(args)
+			return {frame = Net.Status().frame}
 		elseif name == "net_synctest" then
 			-- A rollback sync test of whatever runs now (start a battle first): {frames}.
 			Net.Track(_G)
@@ -503,6 +598,14 @@ BVNGame = {
 			return self:MusouCommand(name, args)
 		end
 		return nil
+	end,
+
+	NetPerturb = function(self, args)
+		local b = self.battle
+		if not b then return end
+		if type(args) ~= "table" then args = {} end
+		local f = b.fighters[args.side or 1]
+		if f then f.hp = f.hp - (args.hp or 7); f.x = f.x + (args.x or 13) end
 	end,
 
 	-- The musou player data in brief (agents and tests).

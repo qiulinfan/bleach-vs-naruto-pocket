@@ -80,6 +80,12 @@ function BVNBattle.New(opts)
 	BVNRuntime.KeepCharacters(keep)
 	BVNRuntime.ClearEnterFrame()
 	local b = setmetatable({}, Battle)
+	-- The stage's map layer as scripts see it: a solid bitmap added over the backdrop is mapFill.
+	b.mapLayer = {
+		addChildAt = function(_, bmp) b.mapFill = bmp and bmp.bitmapData or nil end,
+		addChild = function(_, bmp) b.mapFill = bmp and bmp.bitmapData or nil end,
+		removeChild = function() b.mapFill = nil end,
+	}
 	b.opts = opts
 	b.mode = opts.mode
 	b.training = opts.mode == "training"
@@ -176,6 +182,7 @@ end
 -- GameStage.resetFight + GameStartCtrl. introTeam: -1 both, 1 / 2 one side, 0 none (next round).
 function Battle:StartRound(introTeam)
 	self.sprites = {}
+	self.mapFill = nil
 	for side, f in ipairs(self.fighters) do
 		local p = side == 1 and self.map.p1 or self.map.p2
 		f.x, f.y = p[1], p[2]
@@ -915,6 +922,13 @@ function Battle:Draw()
 			-- The backdrop is fixed to the screen; scale it to cover the wide screen.
 			local k = math.max(SW / L.bg.w, SH / L.bg.h)
 			self:ScreenImage(L.bg.img, SW / 2 - 400 * k + sx * 1.2, SH / 2 - 300 * k + sy * 1.2, k, k, tint, tint, tint, 255, 0)
+		end
+		-- A solid bitmap a script put over the backdrop (BVNBattle.MapLayer).
+		local fill = self.mapFill
+		if fill then
+			local c = fill.color or 0
+			local v = self.view
+			D.Rect(v.x - 10, v.y - 10, v.w + 20, v.h + 20, {(c >> 16) & 255, (c >> 8) & 255, c & 255}, 255, 1)
 		end
 		if L.map then self:DrawLayerImage(L.map.img, L.map.x, L.map.y, L.map.sx, L.map.sy, tint, 255, 2) end
 		-- Off-map strips when the wide view is wider than the map.

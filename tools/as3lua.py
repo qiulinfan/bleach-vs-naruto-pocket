@@ -64,7 +64,7 @@ BINARY = [
 ]
 ASSIGN = {"=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=", ">>>="}
 BUILTIN_CALLS = {"int": "BVN_INT", "uint": "BVN_INT", "Number": "tonumber", "String": "tostring", "Boolean": "BVN_T",
-                 "trace": "BVN_TRACE", "isNaN": "BVN_ISNAN"}
+                 "trace": "BVN_TRACE", "isNaN": "BVN_ISNAN", "getDefinitionByName": "BVN_DEF"}
 CASTS = {"MovieClip", "Sprite", "DisplayObject", "Object", "DisplayObjectContainer"}
 
 
@@ -338,7 +338,8 @@ class Parser:
             while self.eat("."):
                 cls = ("member", cls, self.next()[1])
             args = self.args() if self.at("(") else []
-            return ("call", ("raw", "BVN_NEW"), [("str", '"%s"' % self.name_of(cls))] + args)
+            # new X().play(): members of the new object.
+            return self.postfix(("call", ("raw", "BVN_NEW"), [("str", '"%s"' % self.name_of(cls))] + args))
         return self.postfix(self.primary())
 
     def name_of(self, node):
@@ -373,7 +374,7 @@ class Parser:
                 e = ("index", e, idx)
             elif k == "p" and v in ("++", "--"):
                 self.next()
-                e = ("assign", "+=" if v == "++" else "-=", e, ("num", "1"))
+                e = ("assign", "+=" if v == "++" else "-=", e, ("num", "1"), "post")
             else:
                 return e
 
@@ -567,7 +568,13 @@ class Emitter:
         if k == "arr":
             return "BVN_ARRAY({" + ", ".join(self.ex(x) for x in e[1]) + "})"
         if k == "assign":
-            raise Unsupported("assignment in expression")
+            # An assignment used as a value (if (++n < 10), a = b = c): done in a closure that
+            # returns the new value (the old one for a postfix ++ / --).
+            target = self.ex(e[2])
+            body = " ".join(x.strip() for x in self.assign_stmt(e, ""))
+            if len(e) > 4 and e[4] == "post":
+                return "(function() local v = %s; %s; return v end)()" % (target, body)
+            return "(function() %s; return %s end)()" % (body, target)
         if k == "seq":
             raise Unsupported("comma expression")
         raise Unsupported(k)
@@ -744,9 +751,20 @@ def split_members(src):
     frame_map = {}
     ctor = methods.get(cls)
     if ctor:
-        for idx, fn in re.findall(r"(\d+)\s*,\s*this\.([\w$]+)", ctor[1].split("addFrameScript", 1)[1] if "addFrameScript" in ctor[1] else ""):
+        # FFDec wraps the long call, sometimes between `this` and `.frameN`.
+        for idx, fn in re.findall(r"(\d+)\s*,\s*this\s*\.\s*([\w$]+)", ctor[1].split("addFrameScript", 1)[1] if "addFrameScript" in ctor[1] else ""):
             frame_map[int(idx) + 1] = fn
     return cls, fields, methods, frame_map
+
+
+# An obfuscator's no-op FFDec leaves as stack code: `§§push(x); switch(n) {} §§pop()`
+# (an empty switch between the push and the pop) is just `x`.
+PUSH_POP = re.compile(r"§§push\(((?:[^()]|\([^()]*\))*)\);\s*switch\(\s*-?\d+\s*\)\s*\{\s*\}\s*§§pop\(\)", re.S)
+
+
+def fold_push_pop(body):
+    # A plain name stays bare: a Lua statement must not start with a parenthesis.
+    return PUSH_POP.sub(lambda m: m.group(1) if re.fullmatch(r"[\w$.]+", m.group(1).strip()) else "(" + m.group(1) + ")", body)
 
 
 def translate_class(src):
@@ -786,6 +804,7 @@ def translate_class(src):
             name = "__init"
         em.locals = set(params)
         try:
+            body = fold_push_pop(body)
             if "§" in body:
                 raise Unsupported("undecompiled bytecode")
             stmts = Parser(tokenize(body)).block()
