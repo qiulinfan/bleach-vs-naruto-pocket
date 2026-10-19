@@ -140,6 +140,10 @@ class Swf:
                     obj["name"] = t.get("name")
                 if t.get("placeFlagHasBlendMode") == "true":
                     obj["blend"] = t.get("blendMode") or "1"   # SWF BlendMode: 4 screen, 5 lighten, 8 add, ...
+                if has_char:
+                    # The instance was placed with a blend the converter renders apart: it stays a
+                    # child of its own while it lives, also after a later frame changes its blend.
+                    obj["lit"] = blend_kind(obj)
                 if t.get("placeFlagHasClipDepth") == "true":
                     obj["clip"] = int(t.get("clipDepth"))   # a mask over the depths up to it
                 if t.get("placeFlagHasColorTransform") == "true":

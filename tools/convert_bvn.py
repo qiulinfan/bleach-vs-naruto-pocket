@@ -409,7 +409,7 @@ class Converter:
         def hidden(obj):
             nm = obj.get("name") or ""
             data_only = self.strip_v >= 2 and (nm in SPECIAL_NAMES or "atm" in nm)
-            if (swfxml.blend_kind(obj) and obj["cid"] in self.blended) or obj["cid"] in getattr(self, "split", ()):
+            if (obj.get("lit") and obj["cid"] in self.blended) or obj["cid"] in getattr(self, "split", ()):
                 return True
             return stripped and (nm in self.hide_names or data_only or obj["cid"] in self.dynamic or obj["cid"] in self.giant)
 
@@ -421,6 +421,14 @@ class Converter:
                     rect = swfxml.union(rect, swfxml.transform_rect(obj["m"], swf.bounds(obj["cid"])))
         ox, oy = (-rect[0], -rect[1]) if rect else (0, 0)
         folder = next(render_root.glob("DefineSprite_%s_*" % sid), None) or next(render_root.glob("DefineSprite_%s" % sid), None)
+        # FFDec pads the canvas on every side by the filters' reach in the sprite
+        # (Timeline.getDisplayRectWithFilters): the frames start that much further in.
+        first = folder / "1.png" if folder else None
+        if rect and first and first.exists():
+            w, h = Image.open(first).size
+            pad_x, pad_y = (w - (rect[2] - rect[0])) / 2, (h - (rect[3] - rect[1])) / 2
+            ox += round(pad_x * 2) / 2 if pad_x > 0.75 else 0
+            oy += round(pad_y * 2) / 2 if pad_y > 0.75 else 0
         frames, labels, seen = [], {}, {}
         hit_ranges = None
         for i, (dl, label, sounds) in enumerate(tl):
@@ -445,9 +453,10 @@ class Converter:
             for depth in sorted(dl):
                 obj = dl[depth]
                 nm = obj.get("name")
-                lit = swfxml.blend_kind(obj) if obj["cid"] in self.blended else None
+                placed_lit = obj.get("lit") and obj["cid"] in self.blended
+                lit = swfxml.blend_kind(obj) if placed_lit else None
                 split = obj["cid"] in getattr(self, "split", ())
-                if lit or split or (stripped and obj["cid"] in self.dynamic and obj.get("name") not in self.hide_names):
+                if placed_lit or split or (stripped and obj["cid"] in self.dynamic and obj.get("name") not in self.hide_names):
                     a, b, c, d, tx, ty = obj["m"]
                     kid = [obj["cid"], obj["serial"], round(a, 4), round(b, 4), round(c, 4), round(d, 4), round(tx, 2), round(ty, 2)]
                     # The placement's blend, alpha, colour transform (red, green, blue multipliers and
