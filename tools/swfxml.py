@@ -8,6 +8,13 @@ import xml.etree.ElementTree as ET
 IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 SHAPE_TAGS = {"DefineShapeTag", "DefineShape2Tag", "DefineShape3Tag", "DefineShape4Tag"}
 PLACE_TAGS = {"PlaceObject2Tag", "PlaceObject3Tag"}
+# Blend modes that light up what is under them (screen, lighten, add): the effects drawn on a black
+# background. The engine draws them as an additive blend.
+ADDITIVE_BLENDS = {"4", "5", "8"}
+
+
+def additive(obj):
+    return obj.get("blend") in ADDITIVE_BLENDS
 
 
 def parse_matrix(el):
@@ -109,7 +116,7 @@ class Swf:
                     obj = dict(old) if (move and old) else {}
                     obj["cid"] = t.get("characterId")
                     if not move or not old:
-                        obj = {"cid": t.get("characterId"), "m": IDENTITY, "name": None, "alpha": 1.0}
+                        obj = {"cid": t.get("characterId"), "m": IDENTITY, "name": None, "alpha": 1.0, "blend": "1"}
                     # A new display object instance (a replaced character also restarts its timeline).
                     self._serial = getattr(self, "_serial", 0) + 1
                     obj["serial"] = self._serial
@@ -121,6 +128,8 @@ class Swf:
                     obj["m"] = parse_matrix(t.find("matrix"))
                 if t.get("placeFlagHasName") == "true":
                     obj["name"] = t.get("name")
+                if t.get("placeFlagHasBlendMode") == "true":
+                    obj["blend"] = t.get("blendMode") or "1"   # SWF BlendMode: 4 screen, 5 lighten, 8 add, ...
                 if t.get("placeFlagHasColorTransform") == "true":
                     cx = t.find("colorTransform")
                     if cx is not None and cx.get("hasMultTerms") == "true":

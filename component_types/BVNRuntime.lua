@@ -121,8 +121,12 @@ function R.Character(id)
 		c = rawget(_G, var)
 		rawset(_G, var, nil)
 	end
-	-- Converted data never changes: netplay rollback snapshots leave it out.
-	if c then Net.Static(c) end
+	-- Converted data never changes: netplay rollback snapshots leave it out. Clips refer to
+	-- their sprites directly (clip.data), so each sprite is static too, not only the module.
+	if c then
+		Net.Static(c)
+		for _, sp in pairs(c.sprites or {}) do Net.Static(sp) end
+	end
 	cache[var] = c
 	return c
 end

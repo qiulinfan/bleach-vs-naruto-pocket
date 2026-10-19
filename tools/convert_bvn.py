@@ -144,7 +144,28 @@ class Converter:
                     if obj["cid"] in swf.sprites and swf.frame_count(obj["cid"]) >= 2:
                         self.dynamic.add(obj["cid"])
         self.hide_names = set(detached)
-        render_ids = sorted(form_ids | self.dynamic | {c for cs in detached.values() for c in cs}, key=int)
+        rendered = form_ids | self.dynamic | {c for cs in detached.values() for c in cs}
+        # Children placed with a lighting blend (screen, lighten, add) are effects drawn on black:
+        # they are rendered on their own and drawn additively (a "kid" with blend "add"), wherever
+        # they are placed, instead of being flattened into their parent's frames.
+        self.blended = set()
+        placements = {}
+        todo = list(rendered)
+        while todo:
+            sid = todo.pop()
+            for dl, _, _ in swf.timeline(sid):
+                for obj in dl.values():
+                    if obj["cid"] not in swf.sprites:
+                        continue
+                    placements.setdefault(obj["cid"], set()).add(swfxml.additive(obj))
+                    if swfxml.additive(obj) and obj["cid"] not in self.blended and obj["cid"] not in self.giant:
+                        self.blended.add(obj["cid"])
+                        if obj["cid"] not in rendered:
+                            rendered.add(obj["cid"])
+                            todo.append(obj["cid"])
+        # Always drawn additively, also when spawned on its own (an attacker or bullet).
+        self.always_additive = {cid for cid, kinds in placements.items() if kinds == {True}}
+        render_ids = sorted(rendered, key=int)
 
         def too_big(sid):
             r = swf.bounds(sid)
@@ -239,6 +260,27 @@ class Converter:
                             item.get("type") in swfxml.PLACE_TAGS and item.get("characterId") == t.get("spriteId")):
                         sub.remove(item)
         for t in tags:
+            if t.get("type") != "DefineSpriteTag" or t.find("subTags") is None:
+                continue
+            sub = t.find("subTags")
+            blended_depths = set()
+            for item in list(sub):
+                ty = item.get("type")
+                if ty in swfxml.PLACE_TAGS:
+                    depth = item.get("depth")
+                    if item.get("placeFlagHasCharacter") == "true":
+                        lit = item.get("placeFlagHasBlendMode") == "true" and item.get("blendMode") in swfxml.ADDITIVE_BLENDS
+                        if lit and item.get("characterId") in self.blended:
+                            blended_depths.add(depth)
+                            sub.remove(item)
+                            continue
+                        blended_depths.discard(depth)
+                    elif depth in blended_depths:
+                        sub.remove(item)
+                elif ty in ("RemoveObject2Tag", "RemoveObjectTag") and item.get("depth") in blended_depths:
+                    blended_depths.discard(item.get("depth"))
+                    sub.remove(item)
+        for t in tags:
             if t.get("type") == "DefineSpriteTag" and t.get("spriteId") in sprite_ids:
                 sub = t.find("subTags")
                 hidden_depths = set()
@@ -274,6 +316,8 @@ class Converter:
         def hidden(obj):
             nm = obj.get("name") or ""
             data_only = self.strip_v >= 2 and (nm in SPECIAL_NAMES or "atm" in nm)
+            if swfxml.additive(obj) and obj["cid"] in self.blended:
+                return True
             return stripped and (nm in self.hide_names or data_only or obj["cid"] in self.dynamic or obj["cid"] in self.giant)
 
         # Canvas origin: FFDec renders a sprite on its full bounds.
@@ -308,9 +352,13 @@ class Converter:
             for depth in sorted(dl):
                 obj = dl[depth]
                 nm = obj.get("name")
-                if stripped and obj["cid"] in self.dynamic and obj.get("name") not in self.hide_names:
+                lit = swfxml.additive(obj) and obj["cid"] in self.blended
+                if lit or (stripped and obj["cid"] in self.dynamic and obj.get("name") not in self.hide_names):
                     a, b, c, d, tx, ty = obj["m"]
-                    kids.append([obj["cid"], obj["serial"], round(a, 4), round(b, 4), round(c, 4), round(d, 4), round(tx, 2), round(ty, 2)])
+                    kid = [obj["cid"], obj["serial"], round(a, 4), round(b, 4), round(c, 4), round(d, 4), round(tx, 2), round(ty, 2)]
+                    if lit:
+                        kid.append("add")
+                    kids.append(kid)
                     continue
                 if not nm:
                     continue
@@ -337,7 +385,8 @@ class Converter:
             frames.append(f)
         cls = swf.id_class.get(sid)
         return {"frames": frames, "labels": labels, "ranges": hit_ranges or {}, "script": self.translate(cls) if cls else None,
-                "bounds": [round(x, 1) for x in rect] if rect else None}
+                "bounds": [round(x, 1) for x in rect] if rect else None,
+                "blend": "add" if sid in getattr(self, "always_additive", ()) else None}
 
     def ranges_of(self, sid):
         for dl, _, _ in self.swf.timeline(sid):
@@ -417,8 +466,9 @@ class Converter:
                  "local S = C.sprites"]
         for sid, d in out["sprites"].items():
             fr = ",\n".join("{" + ",".join("%s=%s" % (k, lua_val(v)) for k, v in f.items()) + "}" for f in d["frames"])
-            lines.append("S[%s] = {id=%s, labels=%s, ranges=%s, bounds=%s,\nframes={\n%s},\nscript=%s}" % (
-                lua_str(sid), lua_str(sid), lua_val(d["labels"]), lua_val(d["ranges"]), lua_val(d["bounds"]), fr, d["script"] or "nil"))
+            lines.append("S[%s] = {id=%s, labels=%s, ranges=%s, bounds=%s, blend=%s,\nframes={\n%s},\nscript=%s}" % (
+                lua_str(sid), lua_str(sid), lua_val(d["labels"]), lua_val(d["ranges"]), lua_val(d["bounds"]),
+                lua_val(d.get("blend")), fr, d["script"] or "nil"))
         lines.append("C.forms = %s" % lua_val(out["forms"]))
         lines.append("C.attackers = %s" % lua_val(out["attackers"]))
         lines.append("C.main = %s" % (out["main"] or "nil"))

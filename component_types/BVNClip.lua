@@ -292,6 +292,9 @@ BVNClip = {
 			o.alpha = math.floor((opt.alpha or 255) * math.max(0, ia))
 			opt = o
 		end
+		-- Effects the Flash player blended with screen / lighten / add (drawn on black) draw
+		-- additively, with their whole subtree.
+		if clip.data.blend == "add" and opt.blend ~= "add" then opt = BVNClip.WithBlend(opt) end
 		local a, b, c, d, tx, ty = 1, 0, 0, 1, 0, 0
 		if m then a, b, c, d, tx, ty = m[1], m[2], m[3], m[4], m[5], m[6] end
 		local order = opt.order or 20
@@ -305,10 +308,18 @@ BVNClip = {
 					-- Compose parent * child matrix.
 					local ka, kb, kc, kd, ktx, kty = k[3], k[4], k[5], k[6], k[7], k[8]
 					local nm = {a * ka + c * kb, b * ka + d * kb, a * kc + c * kd, b * kc + d * kd, a * ktx + c * kty + tx, b * ktx + d * kty + ty}
-					BVNClip.Draw(kid, x, y, dir, opt, nm)
+					BVNClip.Draw(kid, x, y, dir, (k[9] == "add" and opt.blend ~= "add") and BVNClip.WithBlend(opt) or opt, nm)
 				end
 			end
 		end
+	end,
+
+	-- A copy of draw options that blends additively.
+	WithBlend = function(opt)
+		local o = {}
+		for k2, v2 in pairs(opt) do o[k2] = v2 end
+		o.blend = "add"
+		return o
 	end,
 
 	-- One frame image whose top-left sits at local (lx, ly) under matrix (a..ty).

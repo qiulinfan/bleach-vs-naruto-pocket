@@ -44,7 +44,7 @@ ENGINE = find_engine()
 
 class Agent:
     def __init__(self, exe, env):
-        self.p = subprocess.Popen([exe, "--headless", "--agent", "--project", str(ROOT)], stdin=subprocess.PIPE,
+        self.p = subprocess.Popen([exe, "--headless", "--agent", "--lua-heap-budget", str(256 << 20), "--project", str(ROOT)], stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
         self.q = queue.Queue()
         self.err = []
