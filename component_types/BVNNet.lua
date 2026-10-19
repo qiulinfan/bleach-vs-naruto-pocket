@@ -23,6 +23,9 @@ local GAME_ID = "bleach_vs_naruto"
 
 local MODES = {{"SINGLE", "单人对战", false}, {"TEAM", "组队对战", true}}
 local NETCODES = {{"ROLLBACK", "回滚 (推荐)", "rollback"}, {"DELAY", "延迟锁步", "lockstep"}}
+-- Rollback input delay in ticks (the host's applies): AUTO follows the ping (1 or 2).
+local DELAYS = {{"AUTO", "按网络自动", 0}, {"1F", "1 帧 (约 17 ms)", 1}, {"2F", "2 帧 (约 33 ms)", 2},
+	{"3F", "3 帧 (约 50 ms)", 3}, {"4F", "4 帧 (约 67 ms)", 4}}
 local KINDS = {lan = "局域网", tailscale = "Tailscale", zerotier = "ZeroTier", radmin = "Radmin VPN"}
 
 local function serverAddress()
@@ -77,8 +80,9 @@ local function say(err)
 end
 
 local function configure()
-	Net.Configure({local_prefix = "p1_", sides = {"p1_", "p2_"}, shared = {"confirm", "back"}, delay = 0,
-		mode = BVNNet.netcode, max_rollback = 8, game = GAME_ID, force_relay = BVNNet.relay == true,
+	Net.Configure({local_prefix = "p1_", sides = {"p1_", "p2_"}, shared = {"confirm", "back"},
+		mode = BVNNet.netcode, max_rollback = 8, delay = BVNNet.netcode == "rollback" and BVNNet.delay or 0,
+		game = GAME_ID, force_relay = BVNNet.relay == true,
 		stun = BVNNet.stun, discovery_port = BVNNet.discoveryPort})
 	-- Rollback state: everything reachable from the globals (converted data is static).
 	Net.Track(_G)
@@ -146,6 +150,7 @@ local function newScreen(g, message)
 		{label = "CODE JOIN", cn = "输入连接码加入"},
 		{label = "MODE", cn = "对战模式", key = "team", options = MODES, value = BVNNet.team},
 		{label = "NETCODE", cn = "联机方式", key = "netcode", options = NETCODES, value = BVNNet.netcode},
+		{label = "DELAY", cn = "回滚输入延迟 (越小越跟手, 画面修正越多)", key = "delay", options = DELAYS, value = BVNNet.delay},
 		{label = "BACK", cn = "返回"},
 	}, {startY = 22, endY = 560, gap = 52})
 
@@ -197,6 +202,7 @@ local function newScreen(g, message)
 			self.message = nil
 			if ev.change == "team" then BVNNet.team = ev.value
 			elseif ev.change == "netcode" then BVNNet.netcode = ev.value
+			elseif ev.change == "delay" then BVNNet.delay = ev.value
 			elseif ev.select == "CREATE ROOM" then st.Start(true, "room")
 			elseif ev.select == "LAN HOST" then st.Start(true, "lan")
 			elseif ev.select == "CODE HOST" then st.Start(true, "code")
@@ -375,6 +381,7 @@ end
 BVNNet = {
 	team = false,
 	netcode = "rollback",
+	delay = 0,             -- rollback input delay in ticks, 0 automatic
 	relay = false,         -- always relay through the room server (tests)
 	lanPort = nil,         -- LAN host port (default 27778)
 	stun = nil,            -- STUN servers for connection codes (tests; default the engine's)
@@ -450,8 +457,9 @@ BVNNet = {
 			S.Text("画面不同步 (帧 " .. tostring(s.desync_frame) .. ")：双方的游戏状态已不一致", 0, 4, 16, RED, "center", 800, 1, 5000)
 		end
 		if s.ping >= 0 then
-			local tag = s.mode == "rollback" and ("回滚 " .. s.max_rollback_seen) or ("延迟 " .. s.delay)
-			S.Text(s.ping .. " ms  " .. tag, 700, 580, 12, WHITE, "left", nil, 0.7, 5000)
+			-- The ping is the round trip; what a player feels is the input delay.
+			local tag = "输入延迟 " .. s.delay .. " 帧" .. (s.mode == "rollback" and ("  回滚 " .. s.max_rollback_seen) or "")
+			S.Text("网络 " .. s.ping .. " ms  " .. tag, 640, 580, 12, WHITE, "left", nil, 0.7, 5000)
 		end
 	end,
 

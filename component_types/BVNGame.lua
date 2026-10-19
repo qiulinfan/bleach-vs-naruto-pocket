@@ -454,6 +454,7 @@ BVNGame = {
 			self:Go(st)
 			if args.team ~= nil then BVNNet.team = args.team end
 			if args.netcode then BVNNet.netcode = args.netcode end
+			if args.delay then BVNNet.delay = args.delay end
 			BVNNet.relay = args.relay == true
 			BVNNet.lanPort = args.port
 			BVNNet.stun = args.stun
