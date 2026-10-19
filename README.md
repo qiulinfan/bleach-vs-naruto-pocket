@@ -98,7 +98,7 @@ git submodule update --init --depth 1 external/TagAssets external/BleachVsNaruto
 
 The converter needs Java, [FFDec](https://github.com/jindrapetrik/jpexs-decompiler)
 (installed as `~/.local/share/ffdec/ffdec-run`, a script that runs `ffdec.jar`
-headless) and Python with Pillow:
+headless) and Python with Pillow and NumPy:
 
 ```bash
 ~/.local/share/bvn-venv/bin/python tools/convert_bvn.py --jobs 5

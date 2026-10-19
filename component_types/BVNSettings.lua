@@ -1,7 +1,7 @@
 -- Game options (ConfigVO), persisted with the engine's Save API in slot
 -- "config". Defaults are the PC build's (SHELL_Pc launch.as / ConfigVO):
 -- CPU level 1, classic key mode, 100% life, 60 s, sound and BGM at 70%,
--- quality LOW, HP numbers hidden. Not attached to any actor.
+-- HP numbers hidden; quality HIGH here (the PC build's LOW). Not attached to any actor.
 local SCHEMA = 1
 
 BVNSettings = {
@@ -11,7 +11,7 @@ BVNSettings = {
 	gameTime = 60,      -- fightTime: seconds, -1 for no limit
 	soundVolume = 0.7,  -- soundVolume 0..1
 	bgmVolume = 0.7,    -- bgmVolume 0..1
-	quality = "low",    -- quality: only BEST smooths the fight's scaled bitmaps (ConfigVO.applyConfig)
+	quality = "high",   -- quality: only BEST smooths the fight's scaled bitmaps (ConfigVO.applyConfig)
 	showHp = false,     -- isShowHp: HP numbers on the fight bars
 	loaded = false,
 
