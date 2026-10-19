@@ -121,6 +121,9 @@ the submodules under `external/`; everything converted from them is ignored
   OPTION. `BVNSettings`: ConfigVO, saved with `Save` in slot `config`.
   `BVNKeys`: the KEY SET page, both players' fight keys rebound with
   `Input.SetBindings` and saved in slot `keys`.
+  `BVNSaveSlot`: the versioned slots (migrations, newer saves read but not
+  written, unknown fields kept, damaged ones restored). `BVNUpdatePrompt`: the
+  title's update question and download progress.
   `BVNTrans`: TransUI / QuickTransUI (`In`, `Out`, `Quick`, `Update`, `Draw`,
   `Busy`, `Covered`), also used by the battle. `BVNScreen`: movie player
   (30 fps UI frames), font1 text, the 800x600 → 1.2x layout, GameInputer-style
@@ -259,8 +262,13 @@ configuration (`netplay.json`).
 ## Releases
 
 Players' builds update themselves from this repository's GitHub Releases
-(`game.config` `version` and `update`, the engine's `Update` API; OPTION ▸
-UPDATE, and a notice on the title screen). To release: raise `version` in
+(`game.config` `version` and `update`, the engine's `Update` API): packaged
+builds check at start and the title asks (`BVNUpdatePrompt`); OPTION ▸ UPDATE
+does the same. Saves live outside the package and must survive every update:
+keep slot names (`config`, `keys`, `musou`), add fields freely, and raise a
+slot's schema only when a field changes meaning, with a migration from the
+previous schema passed to `BVNSaveSlot.Read`; `tools/save_compat_test.py`
+checks old, newer and damaged saves. To release: raise `version` in
 `game.config` and commit it, package each platform with `pocket package`
 (the zips' names must keep `mac` / `windows`), and publish them under the
 tag `v<version>`:

@@ -200,6 +200,8 @@ end
 function Title:Update(g)
 	self.t = self.t + 1
 	self.clip:Step()
+	-- A newer release asks first (BVNUpdatePrompt).
+	if BVNUpdatePrompt.Update() then return end
 	if not self.btns then
 		-- Any key (after 0.8 s) shows the menu.
 		if self.t > 48 and S.AnyKey() then self:ShowBtns() end
@@ -289,6 +291,7 @@ function Title:Draw(g)
 		S.Text("发现新版本 " .. u.latest .. " (当前 " .. u.current .. ")：在 OPTION 里选择 UPDATE 更新", 15, 600 - 32, 16,
 			{253, 237, 101}, "left", nil, 1, ORDER + 1)
 	end
+	BVNUpdatePrompt.Draw()
 end
 
 -- Select stage ------------------------------------------------------------------------------
