@@ -398,6 +398,49 @@ BVNGame = {
 			local f = self.battle.fighters[args.side or 1]
 			f.qi = args.qi or 300
 			return {qi = f.qi}
+		elseif name == "audit_fill" and self.battle then
+			-- tools/battle_audit.py: full qi, energy, assist and HP on both sides, so every move can run.
+			local m = self.battle.map
+			for i, f in ipairs(self.battle.fighters) do
+				f.qi, f.energy, f.fzqi, f.hp = f.qiMax or 300, f.energyMax or 100, f.fzqiMax or 100, f.hpMax
+				f.overload = false
+				-- reset: back to the middle of the map, facing each other, so the camera stays close.
+				if args.reset and m and not f.inAir then
+					f.x, f.vx = (m.left + m.right) / 2 + (i == 1 and -90 or 90), 0
+					f.dir = i == 1 and 1 or -1
+				end
+			end
+			return true
+		elseif name == "audit_sprites" and self.battle then
+			-- The battle's other sprites (attackers, bullets, assists): what plays and where.
+			local out = {}
+			for _, sp in ipairs(self.battle.sprites) do
+				if sp.kind ~= "fighter" then
+					local c = sp.clip
+					out[#out + 1] = {kind = sp.kind, name = sp.name, sprite = c and c.sid, frame = c and c.frame,
+						frames = c and #c.data.frames, label = c and BVNClip.Label(c), dead = sp.dead or false,
+						x = math.floor(sp.x or 0), y = math.floor(sp.y or 0), playing = c and c.playing}
+				end
+			end
+			for f, sh in pairs(self.battle.fx.shadows or {}) do
+				out[#out + 1] = {kind = "shadow", name = f.char and f.char.id, frames = #sh.snaps}
+			end
+			for _, v in ipairs(self.battle.fx.effects or {}) do
+				if v.active then out[#out + 1] = {kind = "effect", name = v.e.cls, frame = v.cur, x = math.floor(v.x or 0), y = math.floor(v.y or 0)} end
+			end
+			return out
+		elseif name == "audit_state" and self.battle then
+			-- The fighter's converted character, form (main_mc frame) and the sprite it plays.
+			local f = self.battle.fighters[args.side or 1]
+			return {char = f.char.id, form = f.mainFrame, form_index = f.formIndex, sprite = f.clip and f.clip.sid,
+				label = f.clip and BVNClip.Label(f.clip), state = f.state, sprites = #self.battle.sprites,
+				x = f.x, y = f.y, inAir = f.inAir, bottom = self.battle.map.bottom, frame = f.clip and f.clip.frame,
+				kids = (function()
+					local k = {}
+					for serial, kid in pairs(f.clip and f.clip.kids or {}) do k[#k + 1] = kid.sid .. "@" .. kid.frame end
+					table.sort(k)
+					return k
+				end)()}
 		elseif name == "set_hp" and self.battle then
 			local f = self.battle.fighters[args.side or 1]
 			f.hp = args.hp or f.hpMax
