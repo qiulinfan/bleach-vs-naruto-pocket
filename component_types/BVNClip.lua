@@ -31,6 +31,8 @@ function ClipAPI.addEventListener() end
 function ClipAPI.removeEventListener() end
 function ClipAPI.hasEventListener() return false end
 
+local WHITE, ZERO = {255, 255, 255}, {0, 0, 0}
+
 local instMT = {}
 instMT.__index = function(t, k)
 	local clip = rawget(t, "_clip")
@@ -302,8 +304,10 @@ BVNClip = {
 			opt = o
 		end
 		-- Effects the Flash player blended with screen / lighten / add (drawn on black) draw
-		-- additively, with their whole subtree.
-		if clip.data.blend == "add" and opt.blend ~= "add" then opt = BVNClip.WithBlend(opt) end
+		-- additively, subtracted or multiplied ones as a multiply, with their whole subtree.
+		local blend = clip.data.blend
+		-- Light stays light: an additive subtree keeps adding.
+		if blend and opt.blend ~= "add" and opt.blend ~= blend then opt = BVNClip.WithBlend(opt, blend) end
 		local a, b, c, d, tx, ty = 1, 0, 0, 1, 0, 0
 		if m then a, b, c, d, tx, ty = m[1], m[2], m[3], m[4], m[5], m[6] end
 		local order = opt.order or 20
@@ -317,19 +321,39 @@ BVNClip = {
 					-- Compose parent * child matrix.
 					local ka, kb, kc, kd, ktx, kty = k[3], k[4], k[5], k[6], k[7], k[8]
 					local nm = {a * ka + c * kb, b * ka + d * kb, a * kc + c * kd, b * kc + d * kd, a * ktx + c * kty + tx, b * ktx + d * kty + ty}
-					BVNClip.Draw(kid, x, y, dir, (k[9] == "add" and opt.blend ~= "add") and BVNClip.WithBlend(opt) or opt, nm)
+					local ko = opt
+					if k[9] and opt.blend ~= "add" and opt.blend ~= k[9] then ko = BVNClip.WithBlend(ko, k[9]) end
+					-- The placement's colour transform: alpha, red / green / blue multipliers and offsets, and
+					-- a colour matrix filter (drawn from the converter's image variant).
+					if (k[10] or k[11] or k[12]) and not opt.capture then
+						if ko == opt then ko = BVNClip.WithBlend(opt, opt.blend) end
+						if k[10] then ko.alpha = math.floor((opt.alpha or 255) * k[10]) end
+						local ct = k[11]
+						if ct then
+							local t = opt.tint or WHITE
+							ko.tint = {t[1] * ct[1], t[2] * ct[2], t[3] * ct[3]}
+							local c = opt.color or ZERO
+							ko.color = {c[1] + ct[4], c[2] + ct[5], c[3] + ct[6]}
+						end
+						if k[12] then ko.variant = k[12] end
+					end
+					BVNClip.Draw(kid, x, y, dir, ko, nm)
 				end
 			end
 		end
 	end,
 
-	-- A copy of draw options that blends additively.
-	WithBlend = function(opt)
+	-- A copy of draw options with a blend: nil, "add", "sub" or "mul".
+	WithBlend = function(opt, blend)
 		local o = {}
 		for k2, v2 in pairs(opt) do o[k2] = v2 end
-		o.blend = "add"
+		o.blend = blend
 		return o
 	end,
+
+	-- Subtracted and multiplied frames draw as the engine's multiply, from images the converter
+	-- premultiplied (and inverted for a subtract) next to the frame's own: <image>_sub / _mul.
+	MULTIPLY = {sub = true, mul = true},
 
 	-- One frame image whose top-left sits at local (lx, ly) under matrix (a..ty).
 	Blit = function(img, lx, ly, a, b, c, d, tx, ty, x, y, dir, opt, order)
@@ -350,10 +374,21 @@ BVNClip = {
 			opt.capture[#opt.capture + 1] = {img, wx / 100, wy / 100, rot * dir, fx, fy, pvx, pvy}
 			return
 		end
+		if opt.variant and not BVNClip.MULTIPLY[opt.blend] then img = img:sub(1, -5) .. "_" .. opt.variant .. ".png" end
 		local r, g, bl = 255, 255, 255
 		if opt.tint then r, g, bl = opt.tint[1], opt.tint[2], opt.tint[3] end
 		local a = opt.alpha or 255
 		local c = opt.color
+		if BVNClip.MULTIPLY[opt.blend] then
+			-- Premultiplied: the tint scales with the alpha. A variant here names the blend too
+			-- (a colour transform baked in: "mulct1").
+			local k = a / 255
+			local v = opt.variant
+			if not (v and v:sub(1, 3) == opt.blend) then v = opt.blend end
+			Image.DrawEx(img:sub(1, -5) .. "_" .. v .. ".png", wx / 100, wy / 100, rot * dir, fx, fy, pvx, pvy,
+				r * k, g * k, bl * k, a, order, nil, "multiply")
+			return
+		end
 		if c then
 			-- Flash colour offsets: negative ones darken (approximated by the multiplier),
 			-- positive ones add light in a second additive pass.
