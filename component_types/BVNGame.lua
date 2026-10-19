@@ -278,6 +278,7 @@ BVNGame = {
 		Camera.SetPosition(6.4, 3.6)
 		BVNTrans.Update()
 		local b = self.battle
+		BVNSettings.Smoothing(b ~= nil)
 		BVNScreen.textFloor = -math.huge
 		if b then
 			self:UpdateBattle(b)
@@ -435,7 +436,7 @@ BVNGame = {
 		elseif name == "audit_state" and self.battle then
 			-- The fighter's converted character, form (main_mc frame) and the sprite it plays.
 			local f = self.battle.fighters[args.side or 1]
-			return {char = f.char.id, form = f.mainFrame, form_index = f.formIndex, sprite = f.clip and f.clip.sid,
+			return {char = f.char.id, hp = f.hp, form = f.mainFrame, form_index = f.formIndex, sprite = f.clip and f.clip.sid,
 				label = f.clip and BVNClip.Label(f.clip), state = f.state, sprites = #self.battle.sprites,
 				x = f.x, y = f.y, inAir = f.inAir, bottom = self.battle.map.bottom, frame = f.clip and f.clip.frame,
 				kids = (function()

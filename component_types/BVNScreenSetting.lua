@@ -1,9 +1,9 @@
 -- SettingStage (OPTION): the original option list on $setting$MC_stgSetUI.
 -- Changes apply at once (volumes, key mode); APPLY saves and returns to the
 -- menu, CANCEL restores the previous options. KEY SET opens the key page
--- (BVNKeys). The original's joystick page, QUALITY and DISPLAY MODE are left
--- out: Pocket2D has no gamepad mapping, Flash quality levels or fullscreen
--- switch for games.
+-- (BVNKeys). QUALITY only matters at BEST (smoothed bitmaps in the fight). The
+-- original's joystick page and DISPLAY MODE are left out: Pocket2D has no
+-- gamepad mapping or fullscreen switch for games.
 -- Not attached to any actor.
 local S = setmetatable({}, {__index = function(_, k) return BVNScreen[k] end})
 local ORDER = 10
@@ -15,6 +15,7 @@ local ITEMS = {
 	{label = "TIME", cn = "对战时间", key = "gameTime"},
 	{label = "SOUND", cn = "游戏音效", key = "soundVolume"},
 	{label = "BGM", cn = "背景音乐", key = "bgmVolume"},
+	{label = "QUALITY", cn = "画质", key = "quality"},
 	{label = "SHOW HP", cn = "显示血量", key = "showHp"},
 	{label = "KEY SET", cn = "按键设置"},
 	{label = "UPDATE", cn = "检查更新", update = true},

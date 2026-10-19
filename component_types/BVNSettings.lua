@@ -1,7 +1,7 @@
 -- Game options (ConfigVO), persisted with the engine's Save API in slot
 -- "config". Defaults are the PC build's (SHELL_Pc launch.as / ConfigVO):
 -- CPU level 1, classic key mode, 100% life, 60 s, sound and BGM at 70%,
--- HP numbers hidden. Not attached to any actor.
+-- quality LOW, HP numbers hidden. Not attached to any actor.
 local SCHEMA = 1
 
 BVNSettings = {
@@ -11,10 +11,11 @@ BVNSettings = {
 	gameTime = 60,      -- fightTime: seconds, -1 for no limit
 	soundVolume = 0.7,  -- soundVolume 0..1
 	bgmVolume = 0.7,    -- bgmVolume 0..1
+	quality = "low",    -- quality: only BEST smooths the fight's scaled bitmaps (ConfigVO.applyConfig)
 	showHp = false,     -- isShowHp: HP numbers on the fight bars
 	loaded = false,
 
-	FIELDS = {"aiLevel", "keyMode", "fighterHP", "gameTime", "soundVolume", "bgmVolume", "showHp"},
+	FIELDS = {"aiLevel", "keyMode", "fighterHP", "gameTime", "soundVolume", "bgmVolume", "quality", "showHp"},
 
 	-- Option lists as the original setting menu shows them (GameInterfaceManager.getSettingMenu).
 	OPTIONS = {
@@ -27,6 +28,8 @@ BVNSettings = {
 			{"100%", "100%", 1}},
 		bgmVolume = {{"0%", "0%", 0}, {"10%", "10%", 0.1}, {"30%", "30%", 0.3}, {"50%", "50%", 0.5}, {"70%", "70%", 0.7},
 			{"100%", "100%", 1}},
+		-- LOW / MEDIUM: StageQuality.LOW, HIGH: MEDIUM (bitmaps not smoothed either), BEST: HIGH.
+		quality = {{"LOW", "低", "low"}, {"MEDIUM", "中", "medium"}, {"HIGH", "高", "high"}, {"BEST", "最高", "best"}},
 		showHp = {{"SHOW", "显示", true}, {"HIDE", "隐藏", false}},
 	},
 
@@ -66,6 +69,12 @@ BVNSettings = {
 		local r = Save.Write("config", SCHEMA, BVNSettings.Snapshot())
 		if not r.ok then Debug.Log("BVN: cannot save options: " .. tostring(r.code) .. " " .. tostring(r.error)) end
 		return r.ok
+	end,
+
+	-- The fight's quality (GameConfig.QUALITY_GAME): at BEST scaled bitmaps are smoothed;
+	-- menus keep QUALITY_UI (LOW).
+	Smoothing = function(inFight)
+		if Image.SetSmoothing then Image.SetSmoothing(inFight and BVNSettings.quality == "best") end
 	end,
 
 	-- ConfigVO.applyConfig: volumes and the key mode.
