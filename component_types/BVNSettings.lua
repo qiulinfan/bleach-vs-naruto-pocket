@@ -53,7 +53,7 @@ BVNSettings = {
 	-- Reads the saved options; unknown or invalid values keep their defaults.
 	Load = function()
 		BVNSettings.loaded = true
-		local r = Save and Save.Read("config")
+		local r = Save and Save.Read("config", {fallback = true})
 		if r and r.ok and r.schema_version == SCHEMA and type(r.data) == "table" then
 			BVNSettings.Restore(r.data)
 		else

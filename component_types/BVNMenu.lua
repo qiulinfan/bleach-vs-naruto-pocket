@@ -283,6 +283,12 @@ function Title:Draw(g)
 	end})
 	-- Version label, bottom right (MenuStage: black, size 18).
 	S.Text(BVNMenu.VERSION or "", 0, 600 - 32, 18, {0, 0, 0}, "right", 800 - 15, 1, ORDER + 1)
+	-- A newer release (Update, checked at start in packaged builds).
+	local u = Update.Status()
+	if u.state == "available" or u.state == "ready" then
+		S.Text("发现新版本 " .. u.latest .. " (当前 " .. u.current .. ")：在 OPTION 里选择 UPDATE 更新", 15, 600 - 32, 16,
+			{253, 237, 101}, "left", nil, 1, ORDER + 1)
+	end
 end
 
 -- Select stage ------------------------------------------------------------------------------

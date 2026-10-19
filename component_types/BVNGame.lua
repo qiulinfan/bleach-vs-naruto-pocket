@@ -42,6 +42,9 @@ BVNGame = {
 		Net.Static(BVNConfig, BVNFxData, BVNMaps, BVNMusouConfig, BVNUIData)
 		BVNRuntime.seed = 20261017
 		BVNSettings.Load()
+		BVNKeys.Load()
+		-- Packaged builds look for a newer release at start (in the background).
+		if Update.Status().installable then Update.Check() end
 		self.mission = {id = 0}
 		self:Go(BVNScreenFlow.NewBoot(self))
 	end,
@@ -416,7 +419,7 @@ BVNGame = {
 			return {phase = bt.phase, winner = bt.matchWinner}
 		elseif name == "goto" then
 			-- Opens a screen directly (tests and agents): title, select, option, credits, howtoplay,
-			-- logo, winner, continue, gameover, congratulations, worldmap, netplay. mode / team pick the game mode.
+			-- logo, winner, continue, gameover, congratulations, worldmap, netplay, keys. mode / team pick the game mode.
 			local stg = args.stage
 			self.mode = args.mode or self.mode or "arcade"
 			if args.team ~= nil then self.team = args.team end
@@ -425,6 +428,7 @@ BVNGame = {
 			if stg == "title" then self:GoMenu()
 			elseif stg == "select" then self:GoSelect()
 			elseif stg == "option" then self:GoOption()
+			elseif stg == "keys" then self:Go(BVNKeys.New(self))
 			elseif stg == "credits" then self:GoCredits()
 			elseif stg == "howtoplay" then self:GoHowToPlay()
 			elseif stg == "logo" then self:GoLogo()

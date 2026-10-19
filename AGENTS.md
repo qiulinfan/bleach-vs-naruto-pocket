@@ -95,6 +95,8 @@ the submodules under `external/`; everything converted from them is ignored
   flows, map). `BVNScreenFlow`: the other stages. `BVNScreenDialog`:
   SetBtnGroup, ConfrimUI, PauseDialog with the move list. `BVNScreenSetting`:
   OPTION. `BVNSettings`: ConfigVO, saved with `Save` in slot `config`.
+  `BVNKeys`: the KEY SET page, both players' fight keys rebound with
+  `Input.SetBindings` and saved in slot `keys`.
   `BVNTrans`: TransUI / QuickTransUI (`In`, `Out`, `Quick`, `Update`, `Draw`,
   `Busy`, `Covered`), also used by the battle. `BVNScreen`: movie player
   (30 fps UI frames), font1 text, the 800x600 → 1.2x layout, GameInputer-style
@@ -222,3 +224,15 @@ must be here. pocket2d-games links it as the submodule `BleachVsNaruto` (its
 history up to pocket2d-games 960c7af came along): commit and push here, then
 move the pointer in pocket2d-games. Never commit converted assets or local
 configuration (`netplay.json`).
+
+## Releases
+
+Players' builds update themselves from this repository's GitHub Releases
+(`game.config` `version` and `update`, the engine's `Update` API; OPTION ▸
+UPDATE, and a notice on the title screen). To release: raise `version` in
+`game.config` and commit it, package each platform with `pocket package`
+(the zips' names must keep `mac` / `windows`), and publish them under the
+tag `v<version>`:
+`gh release create v1.1.0 "<…>-mac.zip" "<…>-windows.zip" --notes "…"`.
+GitHub records each asset's SHA-256, which the game checks before
+installing.
