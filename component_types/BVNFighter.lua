@@ -97,13 +97,38 @@ function BVNFighter.New(battle, char, form, side, input)
 			local m = f.mainMethods[k]
 			if m then return m end
 			if k == "defineAction" then return function(_, id, obj) f.fCtrl:defineAction(id, obj) end end
-			if k == "stop" or k == "gotoAndStop" or k == "gotoAndPlay" or k == "play" then return function() end end
+			-- A form's scripts move main_mc to another form (sasuke_susanoo's Susanoo,
+			-- byakuya's bankai without the sword): its frame script builds that form.
+			if k == "gotoAndStop" or k == "gotoAndPlay" then
+				return function(_, frame) if type(frame) == "number" then f:SetMainFrame(frame) end end
+			end
+			if k == "nextFrame" then return function() f:SetMainFrame(f.mainFrame + 1) end end
+			if k == "stop" or k == "play" then return function() end end
 			return nil
 		end})
 	if main then for k, v in pairs(main.fields) do f.mainInst[k] = v end end
 	f.mainInst.S_fighter_ctrler, f.mainInst.S_mc_ctrler, f.mainInst.S_effect_ctrler = f.fCtrl, f.mcCtrl, f.effCtrl
-	f:SetForm(form or 1)
+	-- main_mc.parent (FighterMain) .parent (the game layer) .parent (the stage), whose first child
+	-- is the map: ulquiorra's ultimate puts a solid bitmap over the map's backdrop and takes it away.
+	f.mainInst.parent = {parent = {parent = {getChildAt = function() return battle.mapLayer end}}}
+	-- FighterMain: main_mc.gotoAndStop(startFrame + 1).
+	f:SetMainFrame((form or 1) + 1)
 	return f
+end
+
+-- The form main_mc shows on its frame `frame` (forms start at frame 2).
+function Fighter:FormAt(frame)
+	local forms = self.char.forms
+	local found
+	for i, form in ipairs(forms) do
+		if form.form_frame == frame then return i end
+		if form.form_frame and form.form_frame < frame then found = i end
+	end
+	return found or clamp(frame - 1, 1, #forms)
+end
+
+function Fighter:SetMainFrame(frame)
+	self:SetForm(self:FormAt(frame))
 end
 
 -- Switches main_mc to the frame of form index `n` and runs its script (defineAction..., initMc).
@@ -112,6 +137,7 @@ function Fighter:SetForm(n)
 	n = clamp(n, 1, #forms)
 	self.formIndex = n
 	local form = forms[n]
+	self.mainFrame = form.form_frame or (n + 1)
 	self.formOffset = {form.x, form.y, form.sx or 1, form.sy or 1}
 	local clip = BVNClip.New(self.char, form.sprite, self.mainInst, self)
 	self.clip = clip

@@ -474,6 +474,10 @@ class Converter:
         lines.append("C.main = %s" % (out["main"] or "nil"))
         lines.append("return C")
         text = re.sub(r"\bBVN_(\w+)\(", r"BVNRuntime.\1(", "\n".join(lines) + "\n")
+        # new <a sound class of this SWF>(): the converted sound (new dashSnd().play()).
+        sounds = out.get("sounds") or {}
+        text = re.sub(r'BVNRuntime\.NEW\("([\w.$]+)"\)', lambda m: 'BVNRuntime.SOUND(C.sounds[%s])' % lua_str(m.group(1))
+                      if m.group(1) in sounds else m.group(0), text)
         (gen / (var + ".lua")).write_text(text, encoding="utf-8")
 
 

@@ -377,7 +377,7 @@ function Attacker:Render()
 			local l = self.touchFloor
 			self.touchFloor = nil
 			BVNClip.Goto(self.clip, l)
-			self.clip.playing = true
+			self.held = false
 		end
 	end
 	if not self.crossMap then self.x = clamp(self.x, m.left, m.right) end
@@ -390,17 +390,20 @@ function Attacker:Render()
 			local l = self.hitTarget[2]
 			self.hitTarget = nil
 			BVNClip.Goto(self.clip, l)
-			self.clip.playing = true
+			self.held = false
 		end
 	end
 end
 
+-- FighterAttacker.renderAnimate: the kernel moves the clip on itself every animation tick (the
+-- clip's own stop() only halts Flash's playback); the attacker controller's stop / gotoAndStop
+-- hold it (held).
 function Attacker:RenderAnimate()
-	if self.dead then return end
+	if self.dead or self.held then return end
 	local c = self.clip
-	if c.playing then BVNClip.Next(c) end
+	BVNClip.Next(c)
 	BVNClip.AdvanceKids(c)
-	if c.frame >= math.max(1, #c.data.frames - 1) and c.playing ~= false then self.dead = true end
+	if c.frame >= math.max(1, #c.data.frames - 1) then self.dead = true end
 end
 
 -- FighterAttacker.hit: the owning fighter gains qi, more for an assist's attacker.
@@ -418,9 +421,9 @@ local AC = {}
 BVNBullet.AttackerCtrl = AC
 function AC:move(x, y) self.a.vx, self.a.vy, self.a.dx, self.a.dy = (x or 0) * self.a.dir, y or 0, 0, 0 end
 function AC:damping(x, y) self.a.dx, self.a.dy = x or 0, y or 0 end
-function AC:stop() self.a.clip.playing = false end
-function AC:gotoAndPlay(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = true end
-function AC:gotoAndStop(l) BVNClip.Goto(self.a.clip, l); self.a.clip.playing = false end
+function AC:stop() self.a.held = true end
+function AC:gotoAndPlay(l) BVNClip.Goto(self.a.clip, l); self.a.held = false end
+function AC:gotoAndStop(l) BVNClip.Goto(self.a.clip, l); self.a.held = true end
 function AC:setTouchFloor(l) self.a.touchFloor = l end
 function AC:setHitTarget(checker, l) self.a.hitTarget = {checker, l} end
 function AC:justHit(id, d) return fighterOf(self.a).fCtrl:justHit(id, d) end
@@ -469,6 +472,7 @@ function Assist:Go()
 	BVNClip.Enter(self.clip, 1)
 	BVNClip.Goto(self.clip, 2)
 	self.clip.playing = true
+	self.held = false
 	self.battle.fx:Effect((self.char.comic_type or 0) == 1 and "fz_naruto" or "fz_bleach", self.x, self.y, self.dir)
 end
 
@@ -485,10 +489,11 @@ function Assist:CurrentHits()
 	return out
 end
 
+-- Assister.renderAnimate: as attackers, held only by its controller.
 function Assist:RenderAnimate()
-	if self.dead then return end
+	if self.dead or self.held then return end
 	local c = self.clip
-	if c.playing then BVNClip.Next(c) end
+	BVNClip.Next(c)
 	BVNClip.AdvanceKids(c)
 	if c.frame >= #c.data.frames - 1 then self:Finish() end
 end
@@ -524,7 +529,7 @@ function SC:moveToTarget(x, y, setDirect)
 end
 function SC:justHit(id, frame, inclDef)
 	local ok = fighterOf(self.a).fCtrl:justHit(id, inclDef)
-	if ok and frame then BVNClip.Goto(self.a.clip, frame); self.a.clip.playing = true end
+	if ok and frame then BVNClip.Goto(self.a.clip, frame); self.a.held = false end
 	return ok
 end
 function SC:fire(name, params) self.a.battle:FireBullet(self.a, name, params or {}, self.a.hitModel) end

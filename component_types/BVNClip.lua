@@ -97,6 +97,10 @@ local facadeMT = {
 		local f = FIELD[k]
 		if f then return sp[f] end
 		if k == "owner" then return sp.owner and BVNClip.Facade(sp.owner) end
+		-- FighterMain's controller getters ($fighter_ctrler ...), for scripts that reach another fighter.
+		if k == "S_fighter_ctrler" then return sp.fCtrl end
+		if k == "S_mc_ctrler" then return sp.mcCtrl end
+		if k == "S_effect_ctrler" then return sp.effCtrl end
 		if k == "mc" then return sp.clip and sp.clip.inst end
 		if k == "team" then return {id = sp.team, name = "p" .. tostring(sp.team or 1)} end
 		if k == "useEnergy" then return function(_, v) if sp.UseEnergy then sp:UseEnergy(v or 0) end end end
@@ -141,7 +145,12 @@ BVNClip = {
 	Layer = {
 		setChildIndex = function(_, child, i)
 			local o = child and rawget(child, "_clip") and rawget(child, "_clip").owner
-			if o then o.drawUnder = (i == 0) end
+			if o and type(i) == "number" then o.drawUnder = (i == 0) end
+		end,
+		-- swapChildren(this, target): aizen's black coffin takes its target's place, over it.
+		swapChildren = function(_, child)
+			local o = child and rawget(child, "_clip") and rawget(child, "_clip").owner
+			if o then o.drawUnder = false end
 		end,
 		getChildIndex = function() return 0 end,
 		addChild = function() end,
