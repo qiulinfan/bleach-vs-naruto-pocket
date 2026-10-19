@@ -71,6 +71,20 @@ local MESSAGES = {
 	{"rollback needs state snapshots", "回滚需要状态快照"},
 }
 
+-- The connection's quality as the engine measures it: round trip, lost
+-- probes and the path (a room server relays when that is faster), with a
+-- colour: green is fine for rollback, yellow playable, red poor.
+local GREEN = {120, 230, 120}
+local function quality(s)
+	if not s or s.ping < 0 then return nil end
+	local parts = {"网络 " .. s.ping .. " ms"}
+	if s.loss and s.loss >= 0 then parts[#parts + 1] = string.format("丢失 %d%%", math.floor(s.loss * 100 + 0.5)) end
+	if s.link == "server" then parts[#parts + 1] = s.relay and "中继" or "直连" end
+	local loss = math.max(s.loss or 0, 0)
+	local color = (s.ping <= 100 and loss < 0.03) and GREEN or ((s.ping <= 200 and loss < 0.1) and YELLOW or RED)
+	return table.concat(parts, "  "), color
+end
+
 local function say(err)
 	if not err or err == "" then return nil end
 	for _, m in ipairs(MESSAGES) do
@@ -346,6 +360,8 @@ local function newScreen(g, message)
 			else
 				box("正在加入")
 			end
+			local q, qc = quality(s)
+			if q and s.state == "connecting" then line(q, 372, 16, qc) end
 			line(status, 400, 18)
 			line("Esc 取消", 440, 16)
 		end
@@ -456,10 +472,12 @@ BVNNet = {
 		if s.desync then
 			S.Text("画面不同步 (帧 " .. tostring(s.desync_frame) .. ")：双方的游戏状态已不一致", 0, 4, 16, RED, "center", 800, 1, 5000)
 		end
-		if s.ping >= 0 then
+		local q, qc = quality(s)
+		if q then
 			-- The ping is the round trip; what a player feels is the input delay.
 			local tag = "输入延迟 " .. s.delay .. " 帧" .. (s.mode == "rollback" and ("  回滚 " .. s.max_rollback_seen) or "")
-			S.Text("网络 " .. s.ping .. " ms  " .. tag, 640, 580, 12, WHITE, "left", nil, 0.7, 5000)
+			-- One line between the select screen's name panels (and the HUD's bars).
+			S.Text(q .. "    " .. tag, 0, 582, 12, qc, "center", 800, 0.8, 5000)
 		end
 	end,
 
