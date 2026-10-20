@@ -280,6 +280,12 @@ BVNHud = {
 		if bn.tick % 2 == 0 and bn.f < bn.to then bn.f = bn.f + 1 end
 	end,
 
+	-- FightUI.fadIn: the bars and both qi bars (GameStartCtrl.skip opens the fight
+	-- without the start banner, which fades them in otherwise).
+	FadeIn = function(b)
+		if BVNHud.Available() then fadeTo(hudOf(b), b, true) end
+	end,
+
 	BannerAt = function(b, label)
 		local bn = b.banner
 		return bn and bn.anim.labels[label] and bn.f >= bn.anim.labels[label]

@@ -640,6 +640,8 @@ end
 
 function Battle:FinishStart()
 	self.start = nil
+	-- The qi bars a KO faded out come back also when the start was skipped (no banner).
+	BVNHud.FadeIn(self)
 	self.phase, self.phaseT = "fight", 0
 	self.actionEnable = true
 	for _, f in ipairs(self.fighters) do f.allowLoseHP = true end
