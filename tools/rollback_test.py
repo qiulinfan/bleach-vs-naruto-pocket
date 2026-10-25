@@ -31,6 +31,14 @@ def find_engine():
 ENGINE = find_engine()
 
 
+def default_game():
+    """The engine's runtime when none is given: POCKET_GAME, else its newest preset
+    build, Release first (pocket2d.cli.find_game)."""
+    sys.path.insert(0, str(ENGINE / "clients/python"))
+    from pocket2d.cli import find_game
+    return find_game(None)
+
+
 class Game:
     def __init__(self, exe, saves):
         # Snapshots keep up to eight states alive: above the agent's default 64 MiB Lua budget.
@@ -108,7 +116,7 @@ def random_input(rng, i):
 
 def main():
     given = len(sys.argv) > 1 and not sys.argv[1].startswith("--")
-    exe = sys.argv[1] if given else str(ENGINE / "build/sdl3-release/game")
+    exe = sys.argv[1] if given else default_game()
     def opt(name, default):
         return int(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
     pairs, frames = opt("--pairs", 6), opt("--frames", 600)

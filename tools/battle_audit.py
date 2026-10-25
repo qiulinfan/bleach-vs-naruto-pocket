@@ -42,6 +42,14 @@ def find_engine():
 
 
 ENGINE = find_engine()
+
+
+def default_game():
+    """The engine's runtime when none is given: POCKET_GAME, else its newest preset
+    build, Release first (pocket2d.cli.find_game)."""
+    sys.path.insert(0, str(ENGINE / "clients/python"))
+    from pocket2d.cli import find_game
+    return find_game(None)
 W, H = 640, 360
 
 # (label, held actions per step, ticks to hold, ticks to wait after, capture ticks after the press)
@@ -191,11 +199,12 @@ def ids(kind):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("game", nargs="?", default=str(ENGINE / "build/sdl3-release/game"))
+    p.add_argument("game", nargs="?", help="runtime (default: the engine's newest build, see default_game)")
     p.add_argument("--only", nargs="*")
     p.add_argument("--kind", default="fighters", choices=["fighters", "assists", "mooks"])
     p.add_argument("--out", default=str(ENGINE / "build/bvn-audit/battle"))
     args = p.parse_args()
+    args.game = args.game or default_game()
     out = Path(args.out) / args.kind
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "report.json"

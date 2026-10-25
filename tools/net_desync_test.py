@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-from net_test import ENGINE, Agent, LossyProxy, align, check, free_port, step
+from net_test import Agent, LossyProxy, align, check, default_game, free_port, step
 
 
 def opt(name, default):
@@ -31,7 +31,7 @@ def run_until(a, b, cond, ticks, fa=None, fb=None):
 
 def main():
     given = len(sys.argv) > 1 and not sys.argv[1].startswith("--")
-    exe = sys.argv[1] if given else str(ENGINE / "build/sdl3-release/game")
+    exe = sys.argv[1] if given else default_game()
     lag, loss = opt("--lag", 150), opt("--loss", 0.02)
     netcode = "lockstep" if "--lockstep" in sys.argv else "rollback"
     saves = tempfile.TemporaryDirectory(prefix="bvn-desync-saves-")

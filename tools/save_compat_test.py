@@ -13,14 +13,14 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from net_test import ENGINE, Agent, check  # noqa: E402
+from net_test import Agent, check, default_game  # noqa: E402
 
 
 def envelope(schema, data):
     return json.dumps({"format_version": 1, "schema_version": schema, "data": data}, ensure_ascii=False)
 
 
-EXE = sys.argv[1] if len(sys.argv) > 1 else str(ENGINE / "build/sdl3-release/game")
+EXE = sys.argv[1] if len(sys.argv) > 1 else default_game()
 
 
 def game(root):

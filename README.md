@@ -136,7 +136,7 @@ find the engine beside the project (or set `POCKET2D_ENGINE`).
 
 ```bash
 BVN=../BleachVsNaruto
-./build/sdl3-release/game --project $BVN
+./build/ninja-release/game --project $BVN
 ```
 
 Regression tests (a CPU vs CPU match started through the title menu, select

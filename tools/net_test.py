@@ -4,7 +4,7 @@ select and fight with their own player 1 keys; the two machines must stay in
 the same state (positions, HP, the battle hash, the seed) and the guest returns
 to the NET PLAY screen when the host leaves. Rollback netcode by default.
 
-Usage: tools/net_test.py [path/to/pocket2d/build/sdl3-release/game] [options]
+Usage: tools/net_test.py [game] [options]  (game: default_game(), the engine's newest build)
   (default)        a room code from a local room server
   --relay          the same, relayed through the server
   --discover       the guest finds a LAN host by LAN discovery
@@ -40,6 +40,14 @@ def find_engine():
 
 
 ENGINE = find_engine()
+
+
+def default_game():
+    """The engine's runtime when none is given: POCKET_GAME, else its newest preset
+    build, Release first (pocket2d.cli.find_game)."""
+    sys.path.insert(0, str(ENGINE / "clients/python"))
+    from pocket2d.cli import find_game
+    return find_game(None)
 
 
 class Agent:
@@ -185,7 +193,7 @@ def free_port():
 
 def main():
     given = len(sys.argv) > 1 and not sys.argv[1].startswith("--")
-    exe = sys.argv[1] if given else str(ENGINE / "build/sdl3-release/game")
+    exe = sys.argv[1] if given else default_game()
     relay = "--relay" in sys.argv
     lan = "--lan" in sys.argv
     def opt(name, default):

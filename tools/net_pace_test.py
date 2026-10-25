@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from net_test import ENGINE, Agent, LossyProxy, align, check, free_port, step
+from net_test import Agent, LossyProxy, align, check, default_game, free_port, step
 
 SOUNDS = ["audio.play", "audio.cancel"]
 
@@ -82,7 +82,7 @@ def heard(sounds):
 
 def main():
     given = len(sys.argv) > 1 and not sys.argv[1].startswith("--")
-    exe = sys.argv[1] if given else str(ENGINE / "build/sdl3-release/game")
+    exe = sys.argv[1] if given else default_game()
     lag, loss, seconds = opt("--lag", 150), opt("--loss", 0.02), opt("--seconds", 20)
     saves = tempfile.TemporaryDirectory(prefix="bvn-pace-saves-")
     a = Agent(exe, dict(os.environ, POCKET_SAVE_ROOT=saves.name + "/a"))
